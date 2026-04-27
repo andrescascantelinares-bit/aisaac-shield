@@ -1,0 +1,8 @@
+streamlit
+supabase
+pandas
+fpdf
+Pillow
+plotly
+
+
