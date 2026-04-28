@@ -7,9 +7,10 @@ import os
 from PIL import Image
 import io
 import time
+import plotly.express as px
 
 # --- 0. CONFIGURACIÓN ---
-st.set_page_config(page_title="Aisaac-Shield Systems", layout="centered")
+st.set_page_config(page_title="Aisaac-Shield Systems", layout="wide")
 ZONA_CR = timezone(timedelta(hours=-6)) 
 
 @st.cache_resource
@@ -32,20 +33,40 @@ def get_base64(file_path):
         with open(file_path, "rb") as f: return base64.b64encode(f.read()).decode()
     return None
 
-def generar_pdf(df, titulo):
+def generar_pdf_mejorado(df, titulo, total):
     try:
         from fpdf import FPDF
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 14)
+        pdf.set_font("Arial", 'B', 16)
+        pdf.set_text_color(75, 0, 130)
         pdf.cell(0, 10, txt=titulo, ln=True, align='C')
+        pdf.ln(10)
+        
+        pdf.set_font("Arial", 'B', 12)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(40, 10, "Fecha", 1)
+        pdf.cell(80, 10, "Concepto/Cliente", 1)
+        pdf.cell(40, 10, "Monto", 1)
+        pdf.ln()
+        
         pdf.set_font("Arial", size=10)
         for i, row in df.iterrows():
-            txt = f"Fecha: {row.get('created_at','N/A')[:10]} | Ref: {row.get('concepto', row.get('cliente', 'Ruta'))} | Monto: CRC {row.get('monto', 0)}"
-            pdf.cell(0, 8, txt=txt, ln=True)
+            fecha = str(row.get('created_at',''))[:10]
+            desc = str(row.get('concepto', row.get('cliente', 'Ruta')))
+            monto = f"CRC {row.get('monto', 0):,}"
+            pdf.cell(40, 10, fecha, 1)
+            pdf.cell(80, 10, desc, 1)
+            pdf.cell(40, 10, monto, 1)
+            pdf.ln()
+            
+        pdf.ln(5)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(120, 10, "TOTAL ACUMULADO:", 0)
+        pdf.cell(40, 10, f"CRC {total:,}", 1)
         return pdf.output(dest='S').encode('latin-1', 'replace')
     except:
-        return b"Error: Instalar fpdf"
+        return b"Error generando PDF"
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
@@ -151,44 +172,58 @@ with tabs[1]:
                 supabase.table("gastos").insert({"concepto": tipo, "monto": int(monto_g), "cliente_id": u, "foto_comprobante": fb64}).execute()
                 st.success("GASTO REGISTRADO"); time.sleep(1); st.rerun()
 
+# ==========================================
+# SECCIÓN DATOS: DASHBOARD Y PDF CON SUMAS
+# ==========================================
 with tabs[2]:
-    st.subheader("Registros y Reportes")
-    if st.button("ACTUALIZAR DATOS DE LA NUBE"): st.cache_resource.clear(); st.rerun()
+    st.subheader("Análisis de Operaciones")
     
-    tipo_hist = st.radio("Selecciona qué ver:", ["Viajes", "Gastos"], horizontal=True)
-
+    if st.button("ACTUALIZAR DATOS DE LA NUBE"):
+        st.cache_resource.clear()
+        st.rerun()
+    
+    # Traer datos
     try:
-        if tipo_hist == "Viajes":
-            res = supabase.table("viajes").select("*").eq("cliente_id", u).order("id", desc=True).execute()
-            if res.data:
-                df_v = pd.DataFrame(res.data)
-                st.dataframe(df_v[["created_at", "cliente", "origen", "destino", "km_actual", "monto"]])
-                
-                csv_v = df_v.to_csv(index=False).encode('utf-8')
-                pdf_v = generar_pdf(df_v, f"Reporte de Viajes - {u.upper()}")
-                c_ex, c_pdf = st.columns(2)
-                c_ex.markdown(crear_boton_descarga(csv_v, "viajes.csv", "📥 DESCARGAR EXCEL", "#107C41"), unsafe_allow_html=True)
-                c_pdf.markdown(crear_boton_descarga(pdf_v, "viajes.pdf", "📄 DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
-            else: st.info("No hay viajes registrados en la nube.")
-            
-        else:
-            res = supabase.table("gastos").select("*").eq("cliente_id", u).order("id", desc=True).execute()
-            if res.data:
-                df_g = pd.DataFrame(res.data)
-                
-                csv_g = df_g.to_csv(index=False).encode('utf-8')
-                pdf_g = generar_pdf(df_g, f"Reporte de Gastos - {u.upper()}")
-                c_ex, c_pdf = st.columns(2)
-                c_ex.markdown(crear_boton_descarga(csv_g, "gastos.csv", "📥 DESCARGAR EXCEL", "#107C41"), unsafe_allow_html=True)
-                c_pdf.markdown(crear_boton_descarga(pdf_g, "gastos.pdf", "📄 DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
+        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+        
+        df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
+        df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
+        
+        # 1. TARJETAS DE SUMADO
+        col1, col2, col3 = st.columns(3)
+        total_viajes = df_v['monto'].sum() if not df_v.empty else 0
+        total_gastos = df_g['monto'].sum() if not df_g.empty else 0
+        balance = total_viajes - total_gastos
+        
+        col1.metric("INGRESOS (VIAJES)", f"CRC {total_viajes:,}")
+        col2.metric("GASTOS TOTALES", f"CRC {total_gastos:,}")
+        col3.metric("BALANCE NETO", f"CRC {balance:,}")
 
-                st.write("---")
-                for i, row in df_g.iterrows():
-                    with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
-                        if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                        if st.button("Borrar Registro", key=f"del_{row['id']}"):
-                            supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
-            else: st.info("No hay gastos registrados en la nube.")
+        # 2. GRÁFICO DE BARRAS DE GASTOS
+        if not df_g.empty:
+            st.write("---")
+            st.subheader("Distribución de Gastos")
+            df_resumen_g = df_g.groupby("concepto")["monto"].sum().reset_index()
+            fig = px.bar(df_resumen_g, x="concepto", y="monto", color="concepto", text_auto=',.0f')
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color=color_pri)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # 3. REPORTES Y DESCARGAS
+        st.write("---")
+        st.subheader("Exportar Documentos")
+        c_pdf, c_xls = st.columns(2)
+        
+        with c_pdf:
+            datos_para_pdf = df_g if not df_g.empty else df_v
+            archivo_pdf = generar_pdf_mejorado(datos_para_pdf, f"REPORTES AISAAC-SHIELD: {u.upper()}", total_gastos if not df_g.empty else total_viajes)
+            st.markdown(crear_boton_descarga(archivo_pdf, "Reporte_Aisaac.pdf", "📄 DESCARGAR PDF CON SUMATORIA", "#DA0B20"), unsafe_allow_html=True)
+
+        with c_xls:
+            if not df_g.empty:
+                csv = df_g.to_csv(index=False).encode('utf-8')
+                st.markdown(crear_boton_descarga(csv, "Gastos_Aisaac.csv", "📥 DESCARGAR EXCEL (CSV)", "#107C41"), unsafe_allow_html=True)
+
     except Exception as e:
         st.error(f"Error de base de datos: {e}")
 
