@@ -29,12 +29,13 @@ def procesar_foto(uploaded_file):
     return base64.b64encode(output.getvalue()).decode()
 
 def obtener_ruta_fondo():
-    nombre = "fondo_reporte.jpg"
     posibilidades = [
-        nombre,
+        "fondo_reporte.jpg",
         "fondo_reporte.jpg.jpg",
-        os.path.join(os.getcwd(), nombre),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), nombre)
+        os.path.join(os.getcwd(), "fondo_reporte.jpg"),
+        os.path.join(os.getcwd(), "fondo_reporte.jpg.jpg"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "fondo_reporte.jpg"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "fondo_reporte.jpg.jpg")
     ]
     for ruta in posibilidades:
         if os.path.exists(ruta):
@@ -113,7 +114,8 @@ if not st.session_state['autenticado']:
     pin = st.text_input("PIN DE ACCESO", type="password")
     if st.button("ACCEDER AL SISTEMA"):
         if pin == "8715": st.session_state.update({'autenticado': True, 'user': "dany", 'ver': "Estandar"})
-        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "andres", 'ver': "Premium"})
+        # AQUI ESTABA EL ERROR. RESTAURADO A "padre_andres"
+        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "padre_andres", 'ver': "Premium"})
         else: st.error("PIN Incorrecto")
         if st.session_state['autenticado']: st.rerun()
     st.stop()
@@ -140,7 +142,6 @@ st.markdown(f"""
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
-    # Aislamiento de logotipos por version de usuario
     if ver == "Premium":
         if os.path.exists("logo.png"): st.image("logo.png", width=120)
     else:
