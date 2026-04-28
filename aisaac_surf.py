@@ -9,7 +9,7 @@ import io
 import time
 import plotly.express as px
 
-# --- 0. CONFIGURACIÓN ---
+# --- 0. CONFIGURACION ---
 st.set_page_config(page_title="Aisaac-Shield Systems", layout="wide")
 ZONA_CR = timezone(timedelta(hours=-6)) 
 
@@ -28,11 +28,18 @@ def procesar_foto(uploaded_file):
     img.save(output, format="JPEG", quality=70)
     return base64.b64encode(output.getvalue()).decode()
 
-def buscar_archivo_fondo():
-    # Busca cualquier variante del nombre para evitar errores de extension
-    posibles = ["fondo_reporte.jpg", "fondo_reporte.jpg.jpg", "fondo_reporte.jpeg"]
-    for p in posibles:
-        if os.path.exists(p): return p
+def obtener_ruta_fondo():
+    nombre = "fondo_reporte.jpg"
+    # Intento 1: Directorio actual
+    if os.path.exists(nombre):
+        return nombre
+    # Intento 2: Directorio exacto del script
+    try:
+        ruta_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), nombre)
+        if os.path.exists(ruta_script):
+            return ruta_script
+    except:
+        pass
     return None
 
 def generar_pdf_pro(df, titulo, total):
@@ -40,18 +47,30 @@ def generar_pdf_pro(df, titulo, total):
         from fpdf import FPDF
         class PDF(FPDF):
             def header(self):
-                bg = buscar_archivo_fondo()
+                bg = obtener_ruta_fondo()
                 if bg:
-                    self.image(bg, x=0, y=0, w=210, h=297)
-                    self.set_fill_color(255, 255, 255)
-                    self.set_alpha(0.65) # Opacidad para legibilidad
-                    self.rect(0, 0, 210, 297, 'F')
-                    self.set_alpha(1)
+                    try:
+                        self.image(bg, x=0, y=0, w=210, h=297)
+                        self.set_fill_color(255, 255, 255)
+                        try:
+                            self.set_alpha(0.65)
+                            self.rect(0, 0, 210, 297, 'F')
+                            self.set_alpha(1)
+                        except AttributeError:
+                            pass # Ignorar si la version de fpdf no soporta transparencias
+                    except Exception as e:
+                        self.set_text_color(255, 0, 0)
+                        self.set_font("Arial", size=8)
+                        self.cell(0, 10, f"Error interno de imagen: {str(e)}", ln=True)
+                else:
+                    self.set_text_color(255, 0, 0)
+                    self.set_font("Arial", size=8)
+                    self.cell(0, 10, "SISTEMA: Archivo 'fondo_reporte.jpg' no localizado en la ruta.", ln=True)
         
         pdf = PDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 22)
-        pdf.set_text_color(75, 0, 130) # Morado Aisaac
+        pdf.set_text_color(75, 0, 130)
         pdf.cell(0, 20, txt=titulo, ln=True, align='C')
         pdf.ln(10)
         
@@ -71,33 +90,37 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(140, 12, "TOTAL ACUMULADO:", 1, 0, 'R')
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
-    except: return b"Error PDF"
+    except Exception as e:
+        return f"Error critico de PDF: {str(e)}".encode('latin-1')
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
-    return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); border: none;">{texto}</a>'
+    return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">{texto}</a>'
 
-# --- 2. MOTOR DE IA ---
-def motor_ia_analisis(df_g, df_v):
-    if df_g.empty: return "SISTEMA: Datos insuficientes para analisis."
-    t_g = df_g['monto'].sum()
-    por_cat = df_g.groupby('concepto')['monto'].sum()
-    max_c = por_cat.idxmax()
-    res = [f"ESTRUCTURA: El gasto dominante es {max_c.upper()} ({ (por_cat.max()/t_g)*100 :.1f}%)."]
-    if not df_v.empty:
-        t_v = df_v['monto'].sum()
-        margen = ((t_v - t_g) / t_v) * 100 if t_v > 0 else 0
-        res.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-    return "<br><br>".join(res)
+# --- 2. MOTOR DE IA ANALITICO ---
+def motor_ia_analisis(df_gastos, df_viajes):
+    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis operativo."
+    total_g = df_gastos['monto'].sum()
+    por_cat = df_gastos.groupby('concepto')['monto'].sum()
+    max_cat = por_cat.idxmax()
+    porcent = (por_cat.max() / total_g) * 100
+    reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
+    if not df_viajes.empty:
+        t_v = df_viajes['monto'].sum()
+        util = t_v - total_g
+        margen = (util / t_v) * 100 if t_v > 0 else 0
+        reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
+    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de combustible.")
+    return "<br><br>".join(reporte)
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
     pin = st.text_input("PIN DE ACCESO", type="password")
-    if st.button("ACCEDER"):
+    if st.button("ACCEDER AL SISTEMA"):
         if pin == "8715": st.session_state.update({'autenticado': True, 'user': "dany", 'ver': "Estandar"})
-        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "padre_andres", 'ver': "Premium"})
+        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "andres", 'ver': "Premium"})
         else: st.error("PIN Incorrecto")
         if st.session_state['autenticado']: st.rerun()
     st.stop()
@@ -107,63 +130,72 @@ u = st.session_state['user']
 ver = st.session_state['ver']
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
 
-if os.path.exists("logo.png"): st.image("logo.png", width=120)
-st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
+c_logo, c_tit = st.columns([1, 5])
+with c_logo:
+    if os.path.exists("logo.png"): st.image("logo.png", width=130)
+
+with c_tit:
+    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS", "DATOS"])
 
-with tabs[0]: # Registro Viajes
+with tabs[0]: 
     with st.form("f_v", clear_on_submit=True):
-        cli = st.text_input("Cliente"); mon = st.number_input("Monto", step=1); km = st.number_input("KM", step=1)
+        c = st.text_input("Cliente / Empresa")
+        m = st.number_input("Monto (CRC)", step=1)
+        k = st.number_input("Kilometraje", step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
-            supabase.table("viajes").insert({"cliente": cli, "monto": int(mon), "km_actual": int(km), "cliente_id": u}).execute()
-            st.success("Sincronizado"); st.rerun()
+            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
+            st.success("Registro Sincronizado"); st.rerun()
 
-with tabs[1]: # Registro Gastos
+with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        tipo = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
-        mg = st.number_input("Monto", step=1); f = st.file_uploader("Foto", type=['jpg','png'])
+        t = st.selectbox("Concepto Operativo", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
+        mg = st.number_input("Monto (CRC)", step=1)
+        f = st.file_uploader("Adjuntar Comprobante", type=['jpg','png'])
         if st.form_submit_button("REGISTRAR GASTO"):
             fb64 = procesar_foto(f) if f else None
-            supabase.table("gastos").insert({"concepto": tipo, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
-            st.success("Guardado"); st.rerun()
+            supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
+            st.success("Registro Sincronizado"); st.rerun()
 
-with tabs[2]: # Dashboard e Historial
+with tabs[2]: 
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
     res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
     df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
     df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
+    c1, c2, c3 = st.columns(3)
     t_v = df_v['monto'].sum() if not df_v.empty else 0
     t_g = df_g['monto'].sum() if not df_g.empty else 0
-    c1, c2, c3 = st.columns(3)
-    c1.metric("INGRESOS", f"CRC {t_v:,}")
-    c2.metric("GASTOS", f"CRC {t_g:,}")
-    c3.metric("NETO", f"CRC {t_v - t_g:,}")
+    c1.metric("TOTAL INGRESOS", f"CRC {t_v:,}")
+    c2.metric("TOTAL GASTOS", f"CRC {t_g:,}")
+    c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
 
-    if st.button("ANALIZAR CON IA"):
-        st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
+    st.write("---")
+    st.subheader("Analisis Estrategico Aisaac-AI")
+    if st.button("SOLICITAR ANALISIS DE DATOS"):
+        with st.spinner("Procesando informacion operativa..."):
+            time.sleep(2)
+            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
         st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
         
-        st.subheader("Exportar")
+        st.subheader("Exportar Documentacion")
         d_p, d_x = st.columns(2)
         with d_p:
-            pdf_b = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf_b, "Reporte.pdf", "📄 DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
+            pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
+            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR DOCUMENTO PDF", "#DA0B20"), unsafe_allow_html=True)
         with d_x:
-            # EXCEL RECUPERADO Y LIMPIO
-            df_xl = df_g.drop(columns=['foto_comprobante'], errors='ignore')
-            csv = df_xl.to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "📥 DESCARGAR EXCEL", "#107C41"), unsafe_allow_html=True)
-
+            csv = df_g.drop(columns=['foto_comprobante'], errors='ignore').to_csv(index=False).encode('utf-8')
+            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR FORMATO EXCEL", "#107C41"), unsafe_allow_html=True)
+        
         st.write("---")
-        st.subheader("Historial Detallado")
+        st.subheader("Historial de Comprobantes")
         for i, row in df_g.iterrows():
             with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
                 if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar", key=f"del_{row['id']}"):
+                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
                     supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
 
 st.markdown(f"<div style='text-align: center; color: {color_pri}; margin-top: 50px; opacity: 0.5;'>AISAAC-SHIELD PROTECTED</div>", unsafe_allow_html=True)
