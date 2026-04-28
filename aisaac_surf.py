@@ -9,7 +9,7 @@ import io
 import time
 import plotly.express as px
 
-# --- 0. CONFIGURACION ---
+# --- 0. CONFIGURACIÓN ---
 st.set_page_config(page_title="Aisaac-Shield Systems", layout="wide")
 ZONA_CR = timezone(timedelta(hours=-6)) 
 
@@ -29,17 +29,16 @@ def procesar_foto(uploaded_file):
     return base64.b64encode(output.getvalue()).decode()
 
 def obtener_ruta_fondo():
+    # Esta función ahora es mucho más robusta
     nombre = "fondo_reporte.jpg"
-    # Intento 1: Directorio actual
-    if os.path.exists(nombre):
-        return nombre
-    # Intento 2: Directorio exacto del script
-    try:
-        ruta_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), nombre)
-        if os.path.exists(ruta_script):
-            return ruta_script
-    except:
-        pass
+    posibilidades = [
+        nombre,
+        os.path.join(os.getcwd(), nombre),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), nombre)
+    ]
+    for ruta in posibilidades:
+        if os.path.exists(ruta):
+            return ruta
     return None
 
 def generar_pdf_pro(df, titulo, total):
@@ -49,41 +48,38 @@ def generar_pdf_pro(df, titulo, total):
             def header(self):
                 bg = obtener_ruta_fondo()
                 if bg:
+                    self.image(bg, x=0, y=0, w=210, h=297)
+                    # Capa de transparencia blanca para que el texto resalte
+                    self.set_fill_color(255, 255, 255)
                     try:
-                        self.image(bg, x=0, y=0, w=210, h=297)
-                        self.set_fill_color(255, 255, 255)
-                        try:
-                            self.set_alpha(0.65)
-                            self.rect(0, 0, 210, 297, 'F')
-                            self.set_alpha(1)
-                        except AttributeError:
-                            pass # Ignorar si la version de fpdf no soporta transparencias
-                    except Exception as e:
-                        self.set_text_color(255, 0, 0)
-                        self.set_font("Arial", size=8)
-                        self.cell(0, 10, f"Error interno de imagen: {str(e)}", ln=True)
+                        self.set_alpha(0.65)
+                        self.rect(0, 0, 210, 297, 'F')
+                        self.set_alpha(1)
+                    except: pass
                 else:
-                    self.set_text_color(255, 0, 0)
-                    self.set_font("Arial", size=8)
-                    self.cell(0, 10, "SISTEMA: Archivo 'fondo_reporte.jpg' no localizado en la ruta.", ln=True)
-        
+                    self.set_text_color(200, 0, 0)
+                    self.set_font("Arial", size=7)
+                    self.cell(0, 5, "AVISO: fondo_reporte.jpg no detectado en carpeta local", ln=True)
+
         pdf = PDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 22)
-        pdf.set_text_color(75, 0, 130)
+        pdf.set_text_color(75, 0, 130) # Morado Aisaac
         pdf.cell(0, 20, txt=titulo, ln=True, align='C')
         pdf.ln(10)
         
+        # Encabezados de Tabla
         pdf.set_fill_color(75, 0, 130); pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(40, 10, "Fecha", 1, 0, 'C', True)
         pdf.cell(100, 10, "Concepto", 1, 0, 'C', True)
         pdf.cell(40, 10, "Monto", 1, 1, 'C', True)
         
+        # Datos
         pdf.set_text_color(30, 30, 30); pdf.set_font("Arial", size=11)
         for _, row in df.iterrows():
             pdf.cell(40, 10, str(row.get('created_at',''))[:10], 1)
-            pdf.cell(100, 10, str(row.get('concepto', 'Gasto')), 1)
+            pdf.cell(100, 10, str(row.get('concepto', 'Operativo')), 1)
             pdf.cell(40, 10, f"CRC {row.get('monto', 0):,}", 1, 1)
             
         pdf.ln(5); pdf.set_font("Arial", 'B', 14); pdf.set_text_color(16, 124, 65)
@@ -91,111 +87,62 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
     except Exception as e:
-        return f"Error critico de PDF: {str(e)}".encode('latin-1')
+        return f"Error en PDF: {str(e)}".encode('latin-1')
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
-    return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">{texto}</a>'
+    return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); border: none;">{texto}</a>'
 
-# --- 2. MOTOR DE IA ANALITICO ---
-def motor_ia_analisis(df_gastos, df_viajes):
-    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis operativo."
-    total_g = df_gastos['monto'].sum()
-    por_cat = df_gastos.groupby('concepto')['monto'].sum()
-    max_cat = por_cat.idxmax()
-    porcent = (por_cat.max() / total_g) * 100
-    reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
-    if not df_viajes.empty:
-        t_v = df_viajes['monto'].sum()
-        util = t_v - total_g
-        margen = (util / t_v) * 100 if t_v > 0 else 0
-        reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de combustible.")
-    return "<br><br>".join(reporte)
-
-# --- 3. LOGIN ---
+# --- 2. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
     pin = st.text_input("PIN DE ACCESO", type="password")
-    if st.button("ACCEDER AL SISTEMA"):
+    if st.button("ACCEDER"):
         if pin == "8715": st.session_state.update({'autenticado': True, 'user': "dany", 'ver': "Estandar"})
         elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "andres", 'ver': "Premium"})
-        else: st.error("PIN Incorrecto")
         if st.session_state['autenticado']: st.rerun()
     st.stop()
 
-# --- 4. INTERFAZ ---
+# --- 3. INTERFAZ ---
 u = st.session_state['user']
 ver = st.session_state['ver']
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
 
-c_logo, c_tit = st.columns([1, 5])
-with c_logo:
-    if os.path.exists("logo.png"): st.image("logo.png", width=130)
+st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
 
-with c_tit:
-    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
+tabs = st.tabs(["VIAJES", "GASTOS", "DATOS"])
 
-tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS", "DATOS"])
-
-with tabs[0]: 
-    with st.form("f_v", clear_on_submit=True):
-        c = st.text_input("Cliente / Empresa")
-        m = st.number_input("Monto (CRC)", step=1)
-        k = st.number_input("Kilometraje", step=1)
-        if st.form_submit_button("GUARDAR VIAJE"):
-            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-            st.success("Registro Sincronizado"); st.rerun()
-
-with tabs[1]: 
+with tabs[1]: # GASTOS
     with st.form("f_g", clear_on_submit=True):
-        t = st.selectbox("Concepto Operativo", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
-        mg = st.number_input("Monto (CRC)", step=1)
-        f = st.file_uploader("Adjuntar Comprobante", type=['jpg','png'])
-        if st.form_submit_button("REGISTRAR GASTO"):
-            fb64 = procesar_foto(f) if f else None
-            supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
-            st.success("Registro Sincronizado"); st.rerun()
+        tipo = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
+        mon = st.number_input("Monto", step=1); foto = st.file_uploader("Recibo", type=['jpg','png'])
+        if st.form_submit_button("GUARDAR GASTO"):
+            f_b64 = procesar_foto(foto) if foto else None
+            supabase.table("gastos").insert({"concepto": tipo, "monto": int(mon), "cliente_id": u, "foto_comprobante": f_b64}).execute()
+            st.success("Guardado!"); st.rerun()
 
-with tabs[2]: 
-    res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
+with tabs[2]: # DATOS
     res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
-    df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
     df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
-
-    c1, c2, c3 = st.columns(3)
-    t_v = df_v['monto'].sum() if not df_v.empty else 0
-    t_g = df_g['monto'].sum() if not df_g.empty else 0
-    c1.metric("TOTAL INGRESOS", f"CRC {t_v:,}")
-    c2.metric("TOTAL GASTOS", f"CRC {t_g:,}")
-    c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
-
-    st.write("---")
-    st.subheader("Analisis Estrategico Aisaac-AI")
-    if st.button("SOLICITAR ANALISIS DE DATOS"):
-        with st.spinner("Procesando informacion operativa..."):
-            time.sleep(2)
-            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
-
+    
     if not df_g.empty:
-        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
+        total = df_g['monto'].sum()
+        st.metric("TOTAL GASTOS", f"CRC {total:,}")
         
-        st.subheader("Exportar Documentacion")
-        d_p, d_x = st.columns(2)
-        with d_p:
-            pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR DOCUMENTO PDF", "#DA0B20"), unsafe_allow_html=True)
-        with d_x:
+        col_pdf, col_xl = st.columns(2)
+        with col_pdf:
+            pdf_data = generar_pdf_pro(df_g, f"REPORTE DE {u.upper()}", total)
+            st.markdown(crear_boton_descarga(pdf_data, "Reporte.pdf", "📄 PDF CON FONDO", "#DA0B20"), unsafe_allow_html=True)
+        with col_xl:
+            # EXCEL RESTAURADO
             csv = df_g.drop(columns=['foto_comprobante'], errors='ignore').to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR FORMATO EXCEL", "#107C41"), unsafe_allow_html=True)
-        
-        st.write("---")
-        st.subheader("Historial de Comprobantes")
+            st.markdown(crear_boton_descarga(csv, "Reporte_Gastos.csv", "📥 EXCEL DE GASTOS", "#107C41"), unsafe_allow_html=True)
+
         for i, row in df_g.iterrows():
             with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
                 if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
+                if st.button("Eliminar", key=f"del_{row['id']}"):
                     supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
 
-st.markdown(f"<div style='text-align: center; color: {color_pri}; margin-top: 50px; opacity: 0.5;'>AISAAC-SHIELD PROTECTED</div>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; opacity:0.3; margin-top:50px;'>AISAAC-SHIELD SECURITY</p>", unsafe_allow_html=True)
