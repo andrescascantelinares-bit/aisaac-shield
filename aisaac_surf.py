@@ -19,7 +19,7 @@ def init_conexion():
 
 supabase = init_conexion()
 
-# --- 1. UTILIDADES ---
+# --- 1. UTILIDADES MAESTRAS ---
 def procesar_foto(uploaded_file):
     img = Image.open(uploaded_file)
     if img.mode in ("RGBA", "P"): img = img.convert("RGB")
@@ -65,26 +65,21 @@ def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
     return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">{texto}</a>'
 
-# --- 2. MOTOR DE IA INTERACTIVO (SIN EMOJIS) ---
+# --- 2. MOTOR DE IA ANALÍTICO REAL ---
 def motor_ia_analisis(df_gastos, df_viajes):
-    if df_gastos.empty: return "SISTEMA: Es necesario registrar operaciones para iniciar el análisis."
-    
+    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar perfil operativo."
     total_g = df_gastos['monto'].sum()
-    diesel = df_gastos[df_gastos['concepto'] == 'Diesel']['monto'].sum()
-    
-    consejos = []
-    if diesel > (total_g * 0.4):
-        consejos.append(f"ALERTA DE COMBUSTIBLE: Los gastos en Diesel representan el {int((diesel/total_g)*100)}% del total. Se recomienda evaluar la eficiencia de las rutas actuales.")
-    
+    por_cat = df_gastos.groupby('concepto')['monto'].sum()
+    max_cat = por_cat.idxmax()
+    porcent = (por_cat.max() / total_g) * 100
+    reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
     if not df_viajes.empty:
-        ingresos = df_viajes['monto'].sum()
-        if ingresos < total_g:
-            consejos.append("ALERTA DE BALANCE: Los costos operativos superan los ingresos generados. Es necesario realizar un ajuste en las tarifas de servicio o reducir gastos.")
-        else:
-            consejos.append("ESTADO OPERATIVO: Rendimiento estable. Los ingresos cubren los costos operativos.")
-
-    consejos.append("MANTENIMIENTO PREVENTIVO: Se sugiere verificar la presión de los neumáticos semanalmente para optimizar el consumo de combustible hasta en un 3%.")
-    return "\n\n".join(consejos)
+        t_v = df_viajes['monto'].sum()
+        util = t_v - total_g
+        margen = (util / t_v) * 100 if t_v > 0 else 0
+        reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
+    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de Diesel.")
+    return "<br><br>".join(reporte)
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
@@ -98,77 +93,61 @@ if not st.session_state['autenticado']:
         if st.session_state['autenticado']: st.rerun()
     st.stop()
 
-# --- 4. INTERFAZ PRINCIPAL ---
+# --- 4. INTERFAZ ---
 u = st.session_state['user']
 ver = st.session_state['ver']
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
-
-c_logo, c_tit = st.columns([1, 5])
-with c_logo:
-    if os.path.exists("logo.png"): st.image("logo.png", width=130)
-with c_tit:
-    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
+if os.path.exists("logo.png"): st.image("logo.png", width=130)
+st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS", "DATOS"])
 
-with tabs[0]:
+with tabs[0]: # Viajes
     with st.form("f_v", clear_on_submit=True):
-        cli = st.text_input("Cliente / Empresa")
-        mon = st.number_input("Monto (CRC)", step=1); km = st.number_input("Kilometraje", step=1)
+        c = st.text_input("Cliente"); m = st.number_input("Monto", step=1); k = st.number_input("KM", step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
-            supabase.table("viajes").insert({"cliente": cli, "monto": int(mon), "km_actual": int(km), "cliente_id": u}).execute()
-            st.success("Registro Sincronizado"); st.rerun()
+            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
+            st.success("Guardado"); st.rerun()
 
-with tabs[1]:
+with tabs[1]: # Gastos
     with st.form("f_g", clear_on_submit=True):
-        tipo = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
-        mg = st.number_input("Monto (CRC)", step=1); f = st.file_uploader("Adjuntar Comprobante", type=['jpg','png'])
+        t = st.selectbox("Tipo", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
+        mg = st.number_input("Monto", step=1); f = st.file_uploader("Foto Recibo", type=['jpg','png'])
         if st.form_submit_button("REGISTRAR GASTO"):
             fb64 = procesar_foto(f) if f else None
-            supabase.table("gastos").insert({"concepto": tipo, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
-            st.success("Registro Guardado"); st.rerun()
+            supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
+            st.success("Sincronizado"); st.rerun()
 
-with tabs[2]:
+with tabs[2]: # Dashboard e Inteligencia
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
     res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
     df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
     df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
+    c1, c2, c3 = st.columns(3)
     t_v = df_v['monto'].sum() if not df_v.empty else 0
     t_g = df_g['monto'].sum() if not df_g.empty else 0
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("TOTAL INGRESOS", f"CRC {t_v:,}")
-    col2.metric("TOTAL GASTOS", f"CRC {t_g:,}")
-    col3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
+    c1.metric("INGRESOS", f"CRC {t_v:,}")
+    c2.metric("GASTOS", f"CRC {t_g:,}")
+    c3.metric("NETO", f"CRC {t_v - t_g:,}")
 
-    # --- MÓDULO DE IA (SOBRIO Y TÉCNICO) ---
     st.write("---")
-    st.subheader("Análisis Estratégico Aisaac-AI")
-    
-    if st.button("SOLICITAR ANÁLISIS DE DATOS"):
-        with st.spinner("Procesando información de la base de datos..."):
+    st.subheader("Analisis Estrategico Aisaac-AI")
+    if st.button("SOLICITAR ANALISIS DE DATOS"):
+        with st.spinner("Procesando informacion operativa..."):
             time.sleep(2)
-            st.markdown(f"""
-            <div style='background: rgba(138, 43, 226, 0.15); border: 2px solid #8A2BE2; padding: 20px; border-radius: 15px; box-shadow: 0 0 10px #8A2BE240;'>
-                <strong>REPORTE DE SISTEMA:</strong><br><br>
-                {motor_ia_analisis(df_g, df_v).replace(chr(10), '<br>')}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"<div style='background: rgba(138, 43, 226, 0.15); border: 2px solid #8A2BE2; padding: 20px; border-radius: 15px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
         st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
-        
-        st.subheader("Exportar Documentación")
-        d_pdf, d_xls = st.columns(2)
-        with d_pdf:
+        d_p, d_x = st.columns(2)
+        with d_p:
             pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR DOCUMENTO PDF", "#DA0B20"), unsafe_allow_html=True)
-        with d_xls:
-            df_excel = df_g.drop(columns=['foto_comprobante'], errors='ignore')
-            csv = df_excel.to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR FORMATO EXCEL", "#107C41"), unsafe_allow_html=True)
-
+            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
+        with d_x:
+            csv = df_g.drop(columns=['foto_comprobante'], errors='ignore').to_csv(index=False).encode('utf-8')
+            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR EXCEL", "#107C41"), unsafe_allow_html=True)
+        
         st.write("---")
         st.subheader("Historial de Comprobantes")
         for i, row in df_g.iterrows():
