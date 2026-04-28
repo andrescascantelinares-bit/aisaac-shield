@@ -33,20 +33,23 @@ def generar_pdf_pro(df, titulo, total):
         from fpdf import FPDF
         class PDF(FPDF):
             def header(self):
-                # Validacion robusta para la imagen de fondo (evita el error de doble extension en Windows)
+                # Busqueda inteligente de la imagen de fondo
+                archivos = os.listdir(".")
                 ruta_bg = None
-                if os.path.exists("fondo_reporte.jpg"):
-                    ruta_bg = "fondo_reporte.jpg"
-                elif os.path.exists("fondo_reporte.jpg.jpg"):
-                    ruta_bg = "fondo_reporte.jpg.jpg"
-                    
+                for f in archivos:
+                    # Busca cualquier archivo que se llame fondo o empiece con WhatsApp (como el tuyo)
+                    if f.lower().startswith("fondo") or f.lower().startswith("whatsapp"):
+                        if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                            ruta_bg = f
+                            break
+                
                 if ruta_bg:
                     self.image(ruta_bg, x=0, y=0, w=210, h=297)
                     self.set_fill_color(255, 255, 255)
                     self.set_alpha(0.65)
                     self.rect(0, 0, 210, 297, 'F')
                     self.set_alpha(1)
-                    
+        
         pdf = PDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 22)
@@ -70,7 +73,8 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(140, 12, "TOTAL ACUMULADO:", 1, 0, 'R')
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
-    except: return b"Error de generacion PDF"
+    except Exception as e:
+        return f"Error PDF: {str(e)}".encode('latin-1')
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
@@ -79,20 +83,16 @@ def crear_boton_descarga(datos, nombre, texto, color):
 # --- 2. MOTOR DE IA ANALITICO ---
 def motor_ia_analisis(df_gastos, df_viajes):
     if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar perfil operativo."
-    
     total_g = df_gastos['monto'].sum()
     por_cat = df_gastos.groupby('concepto')['monto'].sum()
     max_cat = por_cat.idxmax()
     porcent = (por_cat.max() / total_g) * 100
-    
     reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
-    
     if not df_viajes.empty:
         t_v = df_viajes['monto'].sum()
         util = t_v - total_g
         margen = (util / t_v) * 100 if t_v > 0 else 0
         reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-        
     reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de combustible.")
     return "<br><br>".join(reporte)
 
@@ -115,7 +115,11 @@ color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
-    if os.path.exists("logo.png"): st.image("logo.png", width=130)
+    archivos = os.listdir(".")
+    for f in archivos:
+        if f.lower().startswith("logo") and f.lower().endswith((".png", ".jpg")):
+            st.image(f, width=130)
+            break
 with c_tit:
     st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
 
