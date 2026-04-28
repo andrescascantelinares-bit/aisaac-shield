@@ -28,32 +28,49 @@ def procesar_foto(uploaded_file):
     img.save(output, format="JPEG", quality=70)
     return base64.b64encode(output.getvalue()).decode()
 
-def obtener_ruta_local(nombre_archivo):
-    # Fuerza al sistema a buscar el archivo en la misma carpeta fisica del script
-    directorio_actual = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(directorio_actual, nombre_archivo)
+def buscar_imagen(prefijo):
+    # Escaneo agresivo de directorios para asegurar la carga de imagenes
+    directorios = [os.getcwd()]
+    try:
+        directorios.append(os.path.dirname(os.path.abspath(__file__)))
+    except NameError:
+        pass
+    
+    for d in set(directorios):
+        try:
+            archivos = os.listdir(d)
+            for f in archivos:
+                if f.lower().startswith(prefijo.lower()) and f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    return os.path.join(d, f)
+        except Exception:
+            continue
+    return None
 
 def generar_pdf_pro(df, titulo, total):
     try:
         from fpdf import FPDF
         class PDF(FPDF):
             def header(self):
-                # Ubicacion absoluta del fondo
-                ruta_bg = obtener_ruta_local("fondo_reporte.jpg")
-                if not os.path.exists(ruta_bg):
-                    ruta_bg = obtener_ruta_local("fondo_reporte.jpg.jpg")
-                
-                if os.path.exists(ruta_bg):
-                    self.image(ruta_bg, x=0, y=0, w=210, h=297)
-                    
-                    # Manejo de transparencia seguro (evita que versiones antiguas de FPDF fallen)
+                ruta_bg = buscar_imagen("fondo")
+                if ruta_bg:
                     try:
-                        self.set_fill_color(255, 255, 255)
-                        self.set_alpha(0.7)
-                        self.rect(0, 0, 210, 297, 'F')
-                        self.set_alpha(1)
-                    except AttributeError:
-                        pass # Continua si FPDF no soporta set_alpha
+                        self.image(ruta_bg, x=0, y=0, w=210, h=297)
+                        try:
+                            self.set_fill_color(255, 255, 255)
+                            self.set_alpha(0.65)
+                            self.rect(0, 0, 210, 297, 'F')
+                            self.set_alpha(1)
+                        except AttributeError:
+                            pass # Ignorar si la version de FPDF no soporta transparencia
+                    except Exception as e:
+                        # Imprime el error dentro del PDF si el formato de imagen es incompatible
+                        self.set_text_color(255, 0, 0)
+                        self.set_font("Arial", 'B', 10)
+                        self.cell(0, 10, f"SISTEMA: Formato de imagen incompatible ({str(e)[:40]})", ln=True, align='C')
+                else:
+                    self.set_text_color(255, 0, 0)
+                    self.set_font("Arial", 'B', 10)
+                    self.cell(0, 10, "SISTEMA: Archivo de fondo no detectado en el directorio local.", ln=True, align='C')
         
         pdf = PDF()
         pdf.add_page()
@@ -79,7 +96,7 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
     except Exception as e:
-        return f"Error de generacion PDF: {str(e)}".encode('latin-1')
+        return f"Error critico PDF: {str(e)}".encode('latin-1')
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
@@ -120,11 +137,8 @@ color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
-    # Resolucion absoluta para el Logo
-    ruta_logo = obtener_ruta_local("logo_primo.png")
-    if not os.path.exists(ruta_logo):
-        ruta_logo = obtener_ruta_local("logo.png")
-    if os.path.exists(ruta_logo):
+    ruta_logo = buscar_imagen("logo")
+    if ruta_logo:
         st.image(ruta_logo, width=130)
 
 with c_tit:
