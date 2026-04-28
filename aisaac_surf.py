@@ -29,38 +29,49 @@ def procesar_foto(uploaded_file):
     return base64.b64encode(output.getvalue()).decode()
 
 def obtener_ruta_fondo():
-    posibilidades = [
-        "fondo_reporte.jpg",
-        "fondo_reporte.jpg.jpg",
-        os.path.join(os.getcwd(), "fondo_reporte.jpg"),
-        os.path.join(os.getcwd(), "fondo_reporte.jpg.jpg"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "fondo_reporte.jpg"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "fondo_reporte.jpg.jpg")
-    ]
-    for ruta in posibilidades:
-        if os.path.exists(ruta):
-            return ruta
+    nombres = ["fondo_reporte.jpg", "fondo_reporte.jpg.jpg", "fondo_reporte.jpeg", "fondo_reporte.png"]
+    dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__))]
+    for d in dirs:
+        for n in nombres:
+            ruta = os.path.join(d, n)
+            if os.path.exists(ruta): return ruta
     return None
+
+def preparar_fondo_para_pdf():
+    # Esta funcion fuerza a la imagen a ser 100% compatible con FPDF, aplicando la opacidad nativamente
+    ruta_original = obtener_ruta_fondo()
+    if not ruta_original: return None
+    try:
+        img = Image.open(ruta_original).convert('RGBA')
+        # Crear capa blanca semi transparente (165 es el nivel de opacidad)
+        capa_blanca = Image.new('RGBA', img.size, (255, 255, 255, 165))
+        img_mezclada = Image.alpha_composite(img, capa_blanca)
+        img_final = img_mezclada.convert('RGB')
+        
+        # Guardar en un formato estandarizado temporal
+        ruta_segura = os.path.join(os.getcwd(), "temp_fondo_fpdf.jpg")
+        img_final.save(ruta_segura, "JPEG", quality=85)
+        return ruta_segura
+    except Exception:
+        return ruta_original
 
 def generar_pdf_pro(df, titulo, total):
     try:
         from fpdf import FPDF
         class PDF(FPDF):
             def header(self):
-                bg = obtener_ruta_fondo()
-                if bg:
+                bg_seguro = preparar_fondo_para_pdf()
+                if bg_seguro and os.path.exists(bg_seguro):
                     try:
-                        self.image(bg, x=0, y=0, w=210, h=297)
-                        self.set_fill_color(255, 255, 255)
-                        try:
-                            self.set_alpha(0.65)
-                            self.rect(0, 0, 210, 297, 'F')
-                            self.set_alpha(1)
-                        except AttributeError: pass
+                        self.image(bg_seguro, x=0, y=0, w=210, h=297)
                     except Exception as e:
                         self.set_text_color(255, 0, 0)
                         self.set_font("Arial", size=8)
-                        self.cell(0, 10, f"Error de imagen: {str(e)[:40]}", ln=True)
+                        self.cell(0, 10, f"Error critico de libreria FPDF: {str(e)[:40]}", ln=True)
+                else:
+                    self.set_text_color(255, 0, 0)
+                    self.set_font("Arial", size=8)
+                    self.cell(0, 10, "SISTEMA: Archivo de fondo no detectado en el servidor", ln=True)
         
         pdf = PDF()
         pdf.add_page()
@@ -86,7 +97,7 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
     except Exception as e:
-        return f"Error critico PDF: {str(e)}".encode('latin-1')
+        return f"Error general PDF: {str(e)}".encode('latin-1')
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
@@ -104,7 +115,7 @@ def motor_ia_analisis(df_gastos, df_viajes):
         util = t_v - total_g
         margen = (util / t_v) * 100 if t_v > 0 else 0
         reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de combustible.")
+    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para optimizar rendimiento.")
     return "<br><br>".join(reporte)
 
 # --- 2. LOGIN ---
@@ -114,7 +125,6 @@ if not st.session_state['autenticado']:
     pin = st.text_input("PIN DE ACCESO", type="password")
     if st.button("ACCEDER AL SISTEMA"):
         if pin == "8715": st.session_state.update({'autenticado': True, 'user': "dany", 'ver': "Estandar"})
-        # AQUI ESTABA EL ERROR. RESTAURADO A "padre_andres"
         elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "padre_andres", 'ver': "Premium"})
         else: st.error("PIN Incorrecto")
         if st.session_state['autenticado']: st.rerun()
@@ -142,6 +152,7 @@ st.markdown(f"""
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
+    # Aislamiento de logotipos restaurado
     if ver == "Premium":
         if os.path.exists("logo.png"): st.image("logo.png", width=120)
     else:
