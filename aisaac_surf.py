@@ -33,17 +33,9 @@ def generar_pdf_pro(df, titulo, total):
         from fpdf import FPDF
         class PDF(FPDF):
             def header(self):
-                # Busqueda inteligente de la imagen de fondo
-                archivos = os.listdir(".")
-                ruta_bg = None
-                for f in archivos:
-                    # Busca cualquier archivo que se llame fondo o empiece con WhatsApp (como el tuyo)
-                    if f.lower().startswith("fondo") or f.lower().startswith("whatsapp"):
-                        if f.lower().endswith((".jpg", ".jpeg", ".png")):
-                            ruta_bg = f
-                            break
-                
-                if ruta_bg:
+                # Detecta la imagen de la playa con doble extension segun tu carpeta
+                ruta_bg = "fondo_reporte.jpg.jpg" if os.path.exists("fondo_reporte.jpg.jpg") else "fondo_reporte.jpg"
+                if os.path.exists(ruta_bg):
                     self.image(ruta_bg, x=0, y=0, w=210, h=297)
                     self.set_fill_color(255, 255, 255)
                     self.set_alpha(0.65)
@@ -73,16 +65,15 @@ def generar_pdf_pro(df, titulo, total):
         pdf.cell(140, 12, "TOTAL ACUMULADO:", 1, 0, 'R')
         pdf.cell(40, 12, f"CRC {total:,}", 1, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', 'replace')
-    except Exception as e:
-        return f"Error PDF: {str(e)}".encode('latin-1')
+    except: return b"Error de generacion PDF"
 
 def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
     return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">{texto}</a>'
 
-# --- 2. MOTOR DE IA ANALITICO ---
+# --- 2. MOTOR DE IA DINAMICO ---
 def motor_ia_analisis(df_gastos, df_viajes):
-    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar perfil operativo."
+    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis operativo."
     total_g = df_gastos['monto'].sum()
     por_cat = df_gastos.groupby('concepto')['monto'].sum()
     max_cat = por_cat.idxmax()
@@ -93,7 +84,6 @@ def motor_ia_analisis(df_gastos, df_viajes):
         util = t_v - total_g
         margen = (util / t_v) * 100 if t_v > 0 else 0
         reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para reducir consumo de combustible.")
     return "<br><br>".join(reporte)
 
 # --- 3. LOGIN ---
@@ -112,37 +102,30 @@ if not st.session_state['autenticado']:
 u = st.session_state['user']
 ver = st.session_state['ver']
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
+if os.path.exists("logo.png"): st.image("logo.png", width=120)
 
-c_logo, c_tit = st.columns([1, 5])
-with c_logo:
-    archivos = os.listdir(".")
-    for f in archivos:
-        if f.lower().startswith("logo") and f.lower().endswith((".png", ".jpg")):
-            st.image(f, width=130)
-            break
-with c_tit:
-    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
+st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: rgba(0,0,0,0.8);'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {ver.upper()}</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS", "DATOS"])
 
 with tabs[0]: 
     with st.form("f_v", clear_on_submit=True):
-        c = st.text_input("Cliente / Empresa")
+        c = st.text_input("Cliente")
         m = st.number_input("Monto (CRC)", step=1)
         k = st.number_input("Kilometraje", step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
             supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-            st.success("Registro Sincronizado"); st.rerun()
+            st.success("Guardado"); st.rerun()
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        t = st.selectbox("Concepto Operativo", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
+        t = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Otros"])
         mg = st.number_input("Monto (CRC)", step=1)
-        f = st.file_uploader("Adjuntar Comprobante", type=['jpg','png'])
+        f = st.file_uploader("Foto Comprobante", type=['jpg','png'])
         if st.form_submit_button("REGISTRAR GASTO"):
             fb64 = procesar_foto(f) if f else None
             supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
-            st.success("Registro Sincronizado"); st.rerun()
+            st.success("Sincronizado"); st.rerun()
 
 with tabs[2]: 
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
@@ -153,35 +136,35 @@ with tabs[2]:
     c1, c2, c3 = st.columns(3)
     t_v = df_v['monto'].sum() if not df_v.empty else 0
     t_g = df_g['monto'].sum() if not df_g.empty else 0
-    c1.metric("TOTAL INGRESOS", f"CRC {t_v:,}")
-    c2.metric("TOTAL GASTOS", f"CRC {t_g:,}")
-    c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
+    c1.metric("INGRESOS", f"CRC {t_v:,}")
+    c2.metric("GASTOS", f"CRC {t_g:,}")
+    c3.metric("NETO", f"CRC {t_v - t_g:,}")
 
     st.write("---")
-    st.subheader("Analisis Estrategico Aisaac-AI")
-    if st.button("SOLICITAR ANALISIS DE DATOS"):
-        with st.spinner("Procesando informacion operativa..."):
+    if st.button("ANALIZAR DATOS CON IA"):
+        with st.spinner("Generando reporte operativo..."):
             time.sleep(2)
-            st.markdown(f"<div style='background: rgba(138, 43, 226, 0.15); border: 2px solid #8A2BE2; padding: 20px; border-radius: 15px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
         st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
         
-        st.subheader("Exportar Documentacion")
-        d_p, d_x = st.columns(2)
-        with d_p:
+        st.subheader("Descargas")
+        d1, d2 = st.columns(2)
+        with d1:
             pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR DOCUMENTO PDF", "#DA0B20"), unsafe_allow_html=True)
-        with d_x:
-            csv = df_g.drop(columns=['foto_comprobante'], errors='ignore').to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR FORMATO EXCEL", "#107C41"), unsafe_allow_html=True)
+            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "PDF PROFESIONAL", "#DA0B20"), unsafe_allow_html=True)
+        with d2:
+            # EXCEL REPARADO: Se elimina la columna de la foto para evitar el error visual
+            df_limpio = df_g.drop(columns=['foto_comprobante'], errors='ignore')
+            csv = df_limpio.to_csv(index=False).encode('utf-8')
+            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "EXCEL LIMPIO", "#107C41"), unsafe_allow_html=True)
         
         st.write("---")
-        st.subheader("Historial de Comprobantes")
         for i, row in df_g.iterrows():
             with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
                 if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
+                if st.button("Eliminar", key=f"del_{row['id']}"):
                     supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
 
 st.markdown(f"<div style='text-align: center; color: {color_pri}; margin-top: 50px; opacity: 0.5;'>AISAAC-SHIELD PROTECTED</div>", unsafe_allow_html=True)
