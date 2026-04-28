@@ -29,7 +29,6 @@ def procesar_foto(uploaded_file):
     return base64.b64encode(output.getvalue()).decode()
 
 def obtener_ruta_fondo():
-    # Busqueda exhaustiva y robusta de la imagen de fondo
     nombre = "fondo_reporte.jpg"
     posibilidades = [
         nombre,
@@ -132,7 +131,6 @@ else:
     bg_style = "rgba(5, 5, 5, 0.92)"
     titulo_app = "ESTANDAR SYSTEM"
 
-# Estilos inyectados para recuperar el diseño original
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #0e1117; }}
@@ -142,13 +140,16 @@ st.markdown(f"""
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
-    if os.path.exists("logo_primo.png"): st.image("logo_primo.png", width=120)
-    elif os.path.exists("logo.png"): st.image("logo.png", width=120)
+    # Aislamiento de logotipos por version de usuario
+    if ver == "Premium":
+        if os.path.exists("logo.png"): st.image("logo.png", width=120)
+    else:
+        if os.path.exists("logo_primo.png"): st.image("logo_primo.png", width=120)
+        elif os.path.exists("logo.png"): st.image("logo.png", width=120)
 
 with c_tit:
     st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
 
-# Pestañas unificadas para que Dani y Premium tengan el mismo poder
 tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS OPERATIVOS", "DATOS Y REPORTES"])
 
 with tabs[0]: 
@@ -159,7 +160,7 @@ with tabs[0]:
         k = st.number_input("Kilometraje Actual", min_value=0, step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
             supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-            st.success("Ruta registrada con éxito"); st.rerun()
+            st.success("Ruta registrada con exito"); st.rerun()
 
 with tabs[1]: 
     st.subheader("Registro de Gastos")
@@ -188,17 +189,17 @@ with tabs[2]:
     c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
 
     st.write("---")
-    st.subheader("Análisis Estratégico Aisaac-AI")
-    if st.button("SOLICITAR ANÁLISIS DE DATOS"):
-        with st.spinner("Procesando información operativa..."):
+    st.subheader("Analisis Estrategico Aisaac-AI")
+    if st.button("SOLICITAR ANALISIS DE DATOS"):
+        with st.spinner("Procesando informacion operativa..."):
             time.sleep(2)
             st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px; background: rgba(138, 43, 226, 0.1);'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
         st.write("---")
-        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto", title="Distribución de Gastos"), use_container_width=True)
+        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto", title="Distribucion de Gastos"), use_container_width=True)
         
-        st.subheader("Exportar Documentación")
+        st.subheader("Exportar Documentacion")
         d1, d2 = st.columns(2)
         with d1:
             pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
