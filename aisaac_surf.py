@@ -51,6 +51,17 @@ def preparar_fondo_para_pdf():
     except Exception:
         return ruta_original
 
+def formatear_fecha(fecha_iso, formato_corto=False):
+    if not fecha_iso: return "Sin Fecha"
+    try:
+        dt_utc = datetime.fromisoformat(str(fecha_iso).replace('Z', '+00:00'))
+        dt_cr = dt_utc.astimezone(ZONA_CR)
+        if formato_corto:
+            return dt_cr.strftime("%d/%m/%y %H:%M")
+        return dt_cr.strftime("%d/%m/%Y %I:%M %p")
+    except:
+        return str(fecha_iso)[:16]
+
 def generar_pdf_pro(df, titulo, total):
     try:
         from fpdf import FPDF
@@ -70,15 +81,20 @@ def generar_pdf_pro(df, titulo, total):
         
         pdf.set_fill_color(75, 0, 130); pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(40, 10, "Fecha", 1, 0, 'C', True)
-        pdf.cell(100, 10, "Concepto", 1, 0, 'C', True)
+        # Ajuste de proporciones para acomodar la fecha con hora
+        pdf.cell(45, 10, "Fecha y Hora", 1, 0, 'C', True)
+        pdf.cell(95, 10, "Concepto", 1, 0, 'C', True)
         pdf.cell(40, 10, "Monto", 1, 1, 'C', True)
         
-        pdf.set_text_color(30, 30, 30); pdf.set_font("Arial", size=11)
+        pdf.set_text_color(30, 30, 30); pdf.set_font("Arial", size=10)
         for _, row in df.iterrows():
-            pdf.cell(40, 10, str(row.get('created_at',''))[:10], 1)
-            pdf.cell(100, 10, str(row.get('concepto', 'Gasto')), 1)
-            pdf.cell(40, 10, f"CRC {row.get('monto', 0):,}", 1, 1)
+            fecha_str = formatear_fecha(row.get('created_at',''), formato_corto=True)
+            concepto_str = str(row.get('concepto', 'Gasto'))[:50] # Limite de caracteres para evitar desborde
+            monto_str = f"CRC {row.get('monto', 0):,}"
+            
+            pdf.cell(45, 10, fecha_str, 1)
+            pdf.cell(95, 10, concepto_str, 1)
+            pdf.cell(40, 10, monto_str, 1, 1)
             
         pdf.ln(5); pdf.set_font("Arial", 'B', 14); pdf.set_text_color(16, 124, 65)
         pdf.cell(140, 12, "TOTAL ACUMULADO:", 1, 0, 'R')
@@ -95,10 +111,12 @@ def crear_boton_descarga(datos, nombre, texto, color):
 def motor_ia_analisis(df_gastos, df_viajes):
     if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis."
     total_g = df_gastos['monto'].sum()
-    por_cat = df_gastos.groupby('concepto')['monto'].sum()
+    # Analizar usando la categoria base para no confundir a la IA con detalles especificos
+    df_gastos['cat_base'] = df_gastos['concepto'].apply(lambda x: x.split(' - ')[0] if isinstance(x, str) and ' - ' in x else x)
+    por_cat = df_gastos.groupby('cat_base')['monto'].sum()
     max_cat = por_cat.idxmax()
     porcent = (por_cat.max() / total_g) * 100
-    reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
+    reporte = [f"ESTRUCTURA DE COSTOS: La categoria de gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
     if not df_viajes.empty:
         t_v = df_viajes['monto'].sum()
         margen = ((t_v - total_g) / t_v) * 100 if t_v > 0 else 0
@@ -108,17 +126,15 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        # Busqueda de KM mas alto con limpieza de datos (evita errores de NULL/None)
         res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
         res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
         
-        # Validamos que los datos existan y no sean None
         km_v = res_v.data[0]['km_actual'] if res_v.data and res_v.data[0].get('km_actual') is not None else 0
         km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') is not None else 0
         km_actual = max(km_v, km_g)
         
-        # Busqueda del ultimo mantenimiento oficial
-        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).eq("concepto", "Mantenimiento").order("km_actual", desc=True).limit(1).execute()
+        # Uso de iLike para encontrar la palabra Mantenimiento sin importar los detalles extra que se hayan escrito
+        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").order("km_actual", desc=True).limit(1).execute()
         
         if res_m.data and res_m.data[0].get('km_actual') is not None:
             km_ult = res_m.data[0]['km_actual']
@@ -141,10 +157,10 @@ def panel_mantenimiento(u):
             else:
                 st.error(f"CRITICO: Servicio vencido por {abs(km_restantes):,} km.")
         else:
-            st.info("Para activar el seguimiento, registra tu primer cambio de aceite en la seccion GASTOS con el concepto Mantenimiento.")
+            st.info("Para activar el seguimiento, registra tu primer cambio de aceite en la seccion GASTOS asegurando seleccionar la categoria 'Mantenimiento'.")
             
     except Exception as e:
-        st.error(f"Error de lectura: {str(e)}")
+        st.error(f"Error de lectura en el modulo de mantenimiento: {str(e)}")
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
@@ -194,27 +210,39 @@ with tabs[0]:
         if st.form_submit_button("GUARDAR VIAJE"):
             try:
                 supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-                st.success("Ruta registrada"); st.rerun()
+                st.success("Ruta registrada en la base de datos central."); st.rerun()
             except Exception as e:
-                st.error("Error al guardar. Revisa la base de datos.")
+                st.error("Error al guardar. Verifique la conexion con Supabase.")
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        t = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otros"])
+        # Implementacion de categorias con detalle personalizado
+        t_sel = st.selectbox("Categoria Principal", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro Especifico"])
+        t_detalle = st.text_input("Escribe el detalle exacto de este gasto (Ejemplo: Compra de aceite, Almuerzo, Llanta, etc.)")
         mg = st.number_input("Monto (CRC)", min_value=0, step=1)
-        kg = st.number_input("Kilometraje del Gasto (Requerido para Mantenimiento)", min_value=0, step=1)
-        f = st.file_uploader("Comprobante", type=['jpg','png','jpeg'])
+        kg = st.number_input("Kilometraje del Vehiculo (Requerido para control de Mantenimiento)", min_value=0, step=1)
+        f = st.file_uploader("Adjuntar Fotografia de Comprobante / Factura", type=['jpg','png','jpeg'])
+        
         if st.form_submit_button("REGISTRAR GASTO"):
             try:
+                # Logica de consolidacion de texto para mantener orden en la base de datos
+                if t_detalle.strip():
+                    if t_sel == "Otro Especifico":
+                        t_final = t_detalle.strip().capitalize()
+                    else:
+                        t_final = f"{t_sel} - {t_detalle.strip()}"
+                else:
+                    t_final = "Gasto General" if t_sel == "Otro Especifico" else t_sel
+
                 fb64 = procesar_foto(f) if f else None
-                supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
-                st.success("Guardado exitosamente"); st.rerun()
+                supabase.table("gastos").insert({"concepto": t_final, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
+                st.success("Gasto procesado y guardado exitosamente."); st.rerun()
             except Exception as e:
-                st.error("Error: Supabase necesita la columna 'km_actual' en la tabla 'gastos'. Agregala para guardar correctamente.")
+                st.error("Error de conexion. Asegurese de que la base de datos este configurada correctamente.")
 
 with tabs[2]: 
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
-    res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+    res_g = supabase.table("gastos").select("*").eq("cliente_id", u).order("created_at", desc=True).execute()
     df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
     df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
@@ -230,21 +258,28 @@ with tabs[2]:
         st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
-        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
+        # Se genera una columna virtual solo para agrupar la grafica de barras sin llenarla de micro-detalles
+        df_g['categoria'] = df_g['concepto'].apply(lambda x: x.split(' - ')[0] if isinstance(x, str) and ' - ' in x else x)
+        st.plotly_chart(px.bar(df_g.groupby("categoria")["monto"].sum().reset_index(), x="categoria", y="monto", color="categoria"), use_container_width=True)
         
         d1, d2 = st.columns(2)
         with d1:
             pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
             st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "PDF", "#DA0B20"), unsafe_allow_html=True)
         with d2:
-            df_limpio = df_g.drop(columns=['foto_comprobante'], errors='ignore')
+            df_limpio = df_g.drop(columns=['foto_comprobante', 'categoria'], errors='ignore')
             csv = df_limpio.to_csv(index=False).encode('utf-8')
             st.markdown(crear_boton_descarga(csv, "Gastos.csv", "EXCEL", "#107C41"), unsafe_allow_html=True)
         
+        st.write("---")
+        st.subheader("Historial Detallado de Operaciones")
         for i, row in df_g.iterrows():
-            with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
+            # Formateo de alta precision temporal para la interfaz
+            fecha_legible = formatear_fecha(row.get('created_at'))
+            
+            with st.expander(f"{fecha_legible} | {row['concepto']} | CRC {row['monto']:,}"):
                 if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar", key=f"del_{row['id']}"):
+                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
                     supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
 
 with tabs[3]:
