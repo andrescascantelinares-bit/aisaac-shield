@@ -51,12 +51,13 @@ def preparar_fondo_para_pdf():
     except Exception:
         return ruta_original
 
-def formatear_fecha(fecha_iso, formato_corto=False):
-    if not fecha_iso: return "Sin Fecha"
+def formatear_fecha_cr(fecha_iso, corto=False):
+    if not fecha_iso: return "Sin registro"
     try:
+        # Conversion de UTC a Costa Rica
         dt_utc = datetime.fromisoformat(str(fecha_iso).replace('Z', '+00:00'))
         dt_cr = dt_utc.astimezone(ZONA_CR)
-        if formato_corto:
+        if corto:
             return dt_cr.strftime("%d/%m/%y %H:%M")
         return dt_cr.strftime("%d/%m/%Y %I:%M %p")
     except:
@@ -81,20 +82,20 @@ def generar_pdf_pro(df, titulo, total):
         
         pdf.set_fill_color(75, 0, 130); pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
-        # Ajuste de proporciones para acomodar la fecha con hora
-        pdf.cell(45, 10, "Fecha y Hora", 1, 0, 'C', True)
-        pdf.cell(95, 10, "Concepto", 1, 0, 'C', True)
+        # Ajuste de celdas para incluir la hora
+        pdf.cell(45, 10, "Fecha/Hora", 1, 0, 'C', True)
+        pdf.cell(95, 10, "Concepto Detallado", 1, 0, 'C', True)
         pdf.cell(40, 10, "Monto", 1, 1, 'C', True)
         
         pdf.set_text_color(30, 30, 30); pdf.set_font("Arial", size=10)
         for _, row in df.iterrows():
-            fecha_str = formatear_fecha(row.get('created_at',''), formato_corto=True)
-            concepto_str = str(row.get('concepto', 'Gasto'))[:50] # Limite de caracteres para evitar desborde
-            monto_str = f"CRC {row.get('monto', 0):,}"
+            f_str = formatear_fecha_cr(row.get('created_at',''), corto=True)
+            c_str = str(row.get('concepto', 'Gasto'))[:45]
+            m_str = f"CRC {row.get('monto', 0):,}"
             
-            pdf.cell(45, 10, fecha_str, 1)
-            pdf.cell(95, 10, concepto_str, 1)
-            pdf.cell(40, 10, monto_str, 1, 1)
+            pdf.cell(45, 10, f_str, 1)
+            pdf.cell(95, 10, c_str, 1)
+            pdf.cell(40, 10, m_str, 1, 1)
             
         pdf.ln(5); pdf.set_font("Arial", 'B', 14); pdf.set_text_color(16, 124, 65)
         pdf.cell(140, 12, "TOTAL ACUMULADO:", 1, 0, 'R')
@@ -111,16 +112,16 @@ def crear_boton_descarga(datos, nombre, texto, color):
 def motor_ia_analisis(df_gastos, df_viajes):
     if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis."
     total_g = df_gastos['monto'].sum()
-    # Analizar usando la categoria base para no confundir a la IA con detalles especificos
-    df_gastos['cat_base'] = df_gastos['concepto'].apply(lambda x: x.split(' - ')[0] if isinstance(x, str) and ' - ' in x else x)
+    # Limpieza para graficar por categoria principal
+    df_gastos['cat_base'] = df_gastos['concepto'].apply(lambda x: x.split(' - ')[0] if ' - ' in str(x) else x)
     por_cat = df_gastos.groupby('cat_base')['monto'].sum()
     max_cat = por_cat.idxmax()
     porcent = (por_cat.max() / total_g) * 100
-    reporte = [f"ESTRUCTURA DE COSTOS: La categoria de gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
+    reporte = [f"ESTRUCTURA DE COSTOS: El area de {max_cat.upper()} representa el {porcent:.1f}% del gasto total."]
     if not df_viajes.empty:
         t_v = df_viajes['monto'].sum()
         margen = ((t_v - total_g) / t_v) * 100 if t_v > 0 else 0
-        reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
+        reporte.append(f"RENTABILIDAD: Margen operativo neto del {margen:.1f}%.")
     return "<br><br>".join(reporte)
 
 def panel_mantenimiento(u):
@@ -133,7 +134,7 @@ def panel_mantenimiento(u):
         km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') is not None else 0
         km_actual = max(km_v, km_g)
         
-        # Uso de iLike para encontrar la palabra Mantenimiento sin importar los detalles extra que se hayan escrito
+        # Busqueda flexible para encontrar la palabra Mantenimiento en los conceptos detallados
         res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").order("km_actual", desc=True).limit(1).execute()
         
         if res_m.data and res_m.data[0].get('km_actual') is not None:
@@ -147,20 +148,20 @@ def panel_mantenimiento(u):
             c2.metric("Ultimo Servicio", f"{km_ult:,} km", f"Hace {km_recorridos:,} km", delta_color="off")
             
             porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
-            st.write("Progreso hacia el proximo servicio:")
+            st.write("Progreso hacia el proximo servicio de seguridad:")
             st.progress(porcentaje)
             
             if km_restantes > 1000:
-                st.success(f"Estado optimo. Proximo servicio a los {km_ult + km_limite:,} km.")
+                st.success(f"Sistema en estado nominal. Proximo servicio a los {km_ult + km_limite:,} km.")
             elif km_restantes > 0:
-                st.warning(f"Atencion: Faltan {km_restantes:,} km para el servicio.")
+                st.warning(f"Atencion preventiva: Faltan {km_restantes:,} km para el servicio.")
             else:
-                st.error(f"CRITICO: Servicio vencido por {abs(km_restantes):,} km.")
+                st.error(f"ALERTA CRITICA: Servicio de mantenimiento vencido por {abs(km_restantes):,} km.")
         else:
-            st.info("Para activar el seguimiento, registra tu primer cambio de aceite en la seccion GASTOS asegurando seleccionar la categoria 'Mantenimiento'.")
+            st.info("Para activar el seguimiento logistico, registre un gasto bajo la categoria Mantenimiento.")
             
     except Exception as e:
-        st.error(f"Error de lectura en el modulo de mantenimiento: {str(e)}")
+        st.warning("El panel de mantenimiento requiere la columna km_actual en la tabla gastos.")
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
@@ -210,77 +211,78 @@ with tabs[0]:
         if st.form_submit_button("GUARDAR VIAJE"):
             try:
                 supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-                st.success("Ruta registrada en la base de datos central."); st.rerun()
-            except Exception as e:
-                st.error("Error al guardar. Verifique la conexion con Supabase.")
+                st.success("Operacion registrada"); st.rerun()
+            except:
+                st.error("Error de comunicacion con el servidor.")
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        # Implementacion de categorias con detalle personalizado
-        t_sel = st.selectbox("Categoria Principal", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro Especifico"])
-        t_detalle = st.text_input("Escribe el detalle exacto de este gasto (Ejemplo: Compra de aceite, Almuerzo, Llanta, etc.)")
+        # Sistema de categoria mas detalle libre
+        c_base = st.selectbox("Categoria", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro"])
+        c_especifico = st.text_input("Detalle del gasto (Que se compro?)")
         mg = st.number_input("Monto (CRC)", min_value=0, step=1)
-        kg = st.number_input("Kilometraje del Vehiculo (Requerido para control de Mantenimiento)", min_value=0, step=1)
-        f = st.file_uploader("Adjuntar Fotografia de Comprobante / Factura", type=['jpg','png','jpeg'])
+        kg = st.number_input("Kilometraje del Vehiculo", min_value=0, step=1)
+        f = st.file_uploader("Comprobante Digital", type=['jpg','png','jpeg'])
         
         if st.form_submit_button("REGISTRAR GASTO"):
             try:
-                # Logica de consolidacion de texto para mantener orden en la base de datos
-                if t_detalle.strip():
-                    if t_sel == "Otro Especifico":
-                        t_final = t_detalle.strip().capitalize()
-                    else:
-                        t_final = f"{t_sel} - {t_detalle.strip()}"
-                else:
-                    t_final = "Gasto General" if t_sel == "Otro Especifico" else t_sel
-
+                # Fusionamos categoria y detalle
+                concepto_final = f"{c_base} - {c_especifico.strip()}" if c_especifico.strip() else c_base
                 fb64 = procesar_foto(f) if f else None
-                supabase.table("gastos").insert({"concepto": t_final, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
-                st.success("Gasto procesado y guardado exitosamente."); st.rerun()
-            except Exception as e:
-                st.error("Error de conexion. Asegurese de que la base de datos este configurada correctamente.")
+                supabase.table("gastos").insert({
+                    "concepto": concepto_final, 
+                    "monto": int(mg), 
+                    "cliente_id": u, 
+                    "foto_comprobante": fb64, 
+                    "km_actual": int(kg)
+                }).execute()
+                st.success("Gasto procesado"); st.rerun()
+            except:
+                st.error("Error: Verifique la configuracion de la tabla gastos.")
 
 with tabs[2]: 
-    res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
-    res_g = supabase.table("gastos").select("*").eq("cliente_id", u).order("created_at", desc=True).execute()
-    df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
-    df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
+    try:
+        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).order("created_at", desc=True).execute()
+        df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
+        df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
-    t_v = df_v['monto'].sum() if not df_v.empty else 0
-    t_g = df_g['monto'].sum() if not df_g.empty else 0
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("INGRESOS", f"CRC {t_v:,}")
-    c2.metric("GASTOS", f"CRC {t_g:,}")
-    c3.metric("NETO", f"CRC {t_v - t_g:,}")
-
-    if st.button("ANALISIS DE IA"):
-        st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
-
-    if not df_g.empty:
-        # Se genera una columna virtual solo para agrupar la grafica de barras sin llenarla de micro-detalles
-        df_g['categoria'] = df_g['concepto'].apply(lambda x: x.split(' - ')[0] if isinstance(x, str) and ' - ' in x else x)
-        st.plotly_chart(px.bar(df_g.groupby("categoria")["monto"].sum().reset_index(), x="categoria", y="monto", color="categoria"), use_container_width=True)
+        t_v = df_v['monto'].sum() if not df_v.empty else 0
+        t_g = df_g['monto'].sum() if not df_g.empty else 0
         
-        d1, d2 = st.columns(2)
-        with d1:
-            pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "PDF", "#DA0B20"), unsafe_allow_html=True)
-        with d2:
-            df_limpio = df_g.drop(columns=['foto_comprobante', 'categoria'], errors='ignore')
-            csv = df_limpio.to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "EXCEL", "#107C41"), unsafe_allow_html=True)
-        
-        st.write("---")
-        st.subheader("Historial Detallado de Operaciones")
-        for i, row in df_g.iterrows():
-            # Formateo de alta precision temporal para la interfaz
-            fecha_legible = formatear_fecha(row.get('created_at'))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("INGRESOS TOTALES", f"CRC {t_v:,}")
+        c2.metric("GASTOS TOTALES", f"CRC {t_g:,}")
+        c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
+
+        if st.button("ANALISIS DE IA"):
+            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
+
+        if not df_g.empty:
+            # Grafica por categoria principal para evitar desorden
+            df_g['cat_grafica'] = df_g['concepto'].apply(lambda x: x.split(' - ')[0] if ' - ' in str(x) else x)
+            st.plotly_chart(px.bar(df_g.groupby("cat_grafica")["monto"].sum().reset_index(), x="cat_grafica", y="monto", color="cat_grafica"), use_container_width=True)
             
-            with st.expander(f"{fecha_legible} | {row['concepto']} | CRC {row['monto']:,}"):
-                if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
-                    supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
+            d1, d2 = st.columns(2)
+            with d1:
+                pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
+                st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "GENERAR PDF", "#DA0B20"), unsafe_allow_html=True)
+            with d2:
+                df_xl = df_g.drop(columns=['foto_comprobante', 'cat_grafica'], errors='ignore')
+                csv = df_xl.to_csv(index=False).encode('utf-8')
+                st.markdown(crear_boton_descarga(csv, "Gastos.csv", "GENERAR EXCEL", "#107C41"), unsafe_allow_html=True)
+            
+            st.write("---")
+            st.subheader("Historial detallado con marca de tiempo")
+            for i, row in df_g.iterrows():
+                # Mostramos la fecha y hora completa en el historial
+                timestamp = formatear_fecha_cr(row.get('created_at'))
+                with st.expander(f"{timestamp} | {row['concepto']} | CRC {row['monto']:,}"):
+                    if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
+                    if st.button("Eliminar", key=f"del_{row['id']}"):
+                        supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
+    except:
+        st.error("Error al cargar datos. Verifique la estructura de Supabase.")
 
 with tabs[3]:
     panel_mantenimiento(u)
