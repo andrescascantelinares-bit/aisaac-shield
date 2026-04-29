@@ -106,50 +106,45 @@ def motor_ia_analisis(df_gastos, df_viajes):
     return "<br><br>".join(reporte)
 
 def panel_mantenimiento(u):
-    st.markdown("### 🛠️ Estado de Flotilla y Taller")
-    
+    st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        # 1. Obtener KM mas alto registrado
+        # Busqueda de KM mas alto con limpieza de datos (evita errores de NULL/None)
         res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
         res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
-        km_v = res_v.data[0]['km_actual'] if res_v.data and res_v.data[0].get('km_actual') else 0
-        km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') else 0
+        
+        # Validamos que los datos existan y no sean None
+        km_v = res_v.data[0]['km_actual'] if res_v.data and res_v.data[0].get('km_actual') is not None else 0
+        km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') is not None else 0
         km_actual = max(km_v, km_g)
         
-        # 2. Obtener KM del ultimo mantenimiento
-        res_m = supabase.table("gastos").select("km_actual, created_at").eq("cliente_id", u).eq("concepto", "Mantenimiento").order("km_actual", desc=True).limit(1).execute()
+        # Busqueda del ultimo mantenimiento oficial
+        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).eq("concepto", "Mantenimiento").order("km_actual", desc=True).limit(1).execute()
         
-        if res_m.data and res_m.data[0].get('km_actual'):
+        if res_m.data and res_m.data[0].get('km_actual') is not None:
             km_ult = res_m.data[0]['km_actual']
-            
             km_recorridos = km_actual - km_ult
-            km_limite = 5000  # Intervalo para cambio de aceite/revision
+            km_limite = 5000 
             km_restantes = km_limite - km_recorridos
-            porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
             
             c1, c2, c3 = st.columns(3)
             c1.metric("Kilometraje Actual", f"{km_actual:,} km")
-            c2.metric("Último Servicio", f"{km_ult:,} km", f"Hace {km_recorridos:,} km", delta_color="off")
+            c2.metric("Ultimo Servicio", f"{km_ult:,} km", f"Hace {km_recorridos:,} km", delta_color="off")
             
-            st.write("Progreso hacia el próximo servicio:")
+            porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
+            st.write("Progreso hacia el proximo servicio:")
+            st.progress(porcentaje)
             
             if km_restantes > 1000:
-                c3.metric("Próximo en", f"{km_restantes:,} km")
-                st.progress(porcentaje)
-                st.success(f"✅ Flotilla en estado óptimo. Próxima revisión sugerida a los {km_ult + km_limite:,} km.")
+                st.success(f"Estado optimo. Proximo servicio a los {km_ult + km_limite:,} km.")
             elif km_restantes > 0:
-                c3.metric("Próximo en", f"{km_restantes:,} km", "¡Pronto!", delta_color="inverse")
-                st.progress(porcentaje)
-                st.warning(f"⚠️ Atención: Preparar presupuesto. Se acerca el servicio de 5,000 km. (A los {km_ult + km_limite:,} km)")
+                st.warning(f"Atencion: Faltan {km_restantes:,} km para el servicio.")
             else:
-                c3.metric("Atraso de Servicio", f"{abs(km_restantes):,} km", "CRÍTICO", delta_color="inverse")
-                st.progress(1.0)
-                st.error(f"🚨 ALERTA ROJA: El vehículo ha excedido el límite de mantenimiento de seguridad. Programar taller INMEDIATAMENTE.")
+                st.error(f"CRITICO: Servicio vencido por {abs(km_restantes):,} km.")
         else:
-            st.info("ℹ️ No hay registros de 'Mantenimiento'. Cuando realices un cambio de aceite, regístralo en la pestaña GASTOS seleccionando 'Mantenimiento' e ingresando el kilometraje actual.")
+            st.info("Para activar el seguimiento, registra tu primer cambio de aceite en la seccion GASTOS con el concepto Mantenimiento.")
             
     except Exception as e:
-        st.warning(f"⚠️ El panel de mantenimiento requiere una pequeña configuración en Supabase. Asegúrate de añadir la columna 'km_actual' (tipo int8) a la tabla 'gastos'.")
+        st.error(f"Error de lectura: {str(e)}")
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
@@ -215,7 +210,7 @@ with tabs[1]:
                 supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
                 st.success("Guardado exitosamente"); st.rerun()
             except Exception as e:
-                st.error("⚠️ Error: Supabase necesita la columna 'km_actual' en la tabla 'gastos'. Agrégala para guardar correctamente.")
+                st.error("Error: Supabase necesita la columna 'km_actual' en la tabla 'gastos'. Agregala para guardar correctamente.")
 
 with tabs[2]: 
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
