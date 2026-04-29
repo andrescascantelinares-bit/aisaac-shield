@@ -60,7 +60,7 @@ def formatear_fecha_cr(fecha_iso, corto=False):
         if corto:
             return dt_cr.strftime("%d/%m/%y %H:%M")
         return dt_cr.strftime("%d/%m/%Y %I:%M %p")
-    except:
+    except Exception:
         return str(fecha_iso)[:16]
 
 def generar_pdf_pro(df, titulo, total):
@@ -71,7 +71,7 @@ def generar_pdf_pro(df, titulo, total):
                 bg_seguro = preparar_fondo_para_pdf()
                 if bg_seguro and os.path.exists(bg_seguro):
                     try: self.image(bg_seguro, x=0, y=0, w=210, h=297)
-                    except: pass
+                    except Exception: pass
         
         pdf = PDF()
         pdf.add_page()
@@ -125,7 +125,6 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        # Recuperacion segura sin forzar el orden por base de datos para evitar colapsos
         res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).execute()
         
@@ -216,9 +215,10 @@ with tabs[0]:
         if st.form_submit_button("GUARDAR VIAJE"):
             try:
                 supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-                st.success("Operacion registrada"); st.rerun()
-            except:
-                st.error("Error de comunicacion con el servidor.")
+                st.success("Operacion registrada")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error de comunicacion con el servidor: {str(e)}")
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
@@ -239,20 +239,19 @@ with tabs[1]:
                     "foto_comprobante": fb64, 
                     "km_actual": int(kg)
                 }).execute()
-                st.success("Gasto procesado"); st.rerun()
-            except:
-                st.error("Error: Verifique la conexion con la base de datos.")
+                st.success("Gasto procesado")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: Verifique la conexion con la base de datos. Detalle: {str(e)}")
 
 with tabs[2]: 
     try:
-        # Se elimina el '.order()' de Supabase para evitar errores si falta la columna. Se ordenara con Pandas.
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
         
         df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
         
-        # Ordenamiento matematico seguro por ID (del mas nuevo al mas viejo)
         if not df_g.empty and 'id' in df_g.columns:
             df_g = df_g.sort_values(by='id', ascending=False)
 
