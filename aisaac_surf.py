@@ -38,17 +38,13 @@ def obtener_ruta_fondo():
     return None
 
 def preparar_fondo_para_pdf():
-    # Esta funcion fuerza a la imagen a ser 100% compatible con FPDF, aplicando la opacidad nativamente
     ruta_original = obtener_ruta_fondo()
     if not ruta_original: return None
     try:
         img = Image.open(ruta_original).convert('RGBA')
-        # Crear capa blanca semi transparente (165 es el nivel de opacidad)
         capa_blanca = Image.new('RGBA', img.size, (255, 255, 255, 165))
         img_mezclada = Image.alpha_composite(img, capa_blanca)
         img_final = img_mezclada.convert('RGB')
-        
-        # Guardar en un formato estandarizado temporal
         ruta_segura = os.path.join(os.getcwd(), "temp_fondo_fpdf.jpg")
         img_final.save(ruta_segura, "JPEG", quality=85)
         return ruta_segura
@@ -62,16 +58,8 @@ def generar_pdf_pro(df, titulo, total):
             def header(self):
                 bg_seguro = preparar_fondo_para_pdf()
                 if bg_seguro and os.path.exists(bg_seguro):
-                    try:
-                        self.image(bg_seguro, x=0, y=0, w=210, h=297)
-                    except Exception as e:
-                        self.set_text_color(255, 0, 0)
-                        self.set_font("Arial", size=8)
-                        self.cell(0, 10, f"Error critico de libreria FPDF: {str(e)[:40]}", ln=True)
-                else:
-                    self.set_text_color(255, 0, 0)
-                    self.set_font("Arial", size=8)
-                    self.cell(0, 10, "SISTEMA: Archivo de fondo no detectado en el servidor", ln=True)
+                    try: self.image(bg_seguro, x=0, y=0, w=210, h=297)
+                    except: pass
         
         pdf = PDF()
         pdf.add_page()
@@ -103,8 +91,9 @@ def crear_boton_descarga(datos, nombre, texto, color):
     b64 = base64.b64encode(datos).decode()
     return f'<a href="data:application/octet-stream;base64,{b64}" download="{nombre}" style="background-color: {color}; color: white; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); border: none;">{texto}</a>'
 
+# --- 2. MODULOS DE IA Y MANTENIMIENTO ---
 def motor_ia_analisis(df_gastos, df_viajes):
-    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis operativo."
+    if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis."
     total_g = df_gastos['monto'].sum()
     por_cat = df_gastos.groupby('concepto')['monto'].sum()
     max_cat = por_cat.idxmax()
@@ -112,13 +101,54 @@ def motor_ia_analisis(df_gastos, df_viajes):
     reporte = [f"ESTRUCTURA DE COSTOS: El gasto dominante es {max_cat.upper()} ({porcent:.1f}% del total)."]
     if not df_viajes.empty:
         t_v = df_viajes['monto'].sum()
-        util = t_v - total_g
-        margen = (util / t_v) * 100 if t_v > 0 else 0
+        margen = ((t_v - total_g) / t_v) * 100 if t_v > 0 else 0
         reporte.append(f"RENTABILIDAD: Margen neto calculado del {margen:.1f}%.")
-    reporte.append("OPTIMIZACION: Se recomienda auditoria de presion de neumaticos para optimizar rendimiento.")
     return "<br><br>".join(reporte)
 
-# --- 2. LOGIN ---
+def panel_mantenimiento(u):
+    st.markdown("### 🛠️ Estado de Flotilla y Taller")
+    
+    # 1. Obtener KM mas alto registrado
+    res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
+    res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
+    km_v = res_v.data[0]['km_actual'] if res_v.data and res_v.data[0].get('km_actual') else 0
+    km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') else 0
+    km_actual = max(km_v, km_g)
+    
+    # 2. Obtener KM del ultimo mantenimiento
+    res_m = supabase.table("gastos").select("km_actual, created_at").eq("cliente_id", u).eq("concepto", "Mantenimiento").order("km_actual", desc=True).limit(1).execute()
+    
+    if res_m.data and res_m.data[0].get('km_actual'):
+        km_ult = res_m.data[0]['km_actual']
+        fecha_ult = str(res_m.data[0]['created_at'])[:10]
+        
+        km_recorridos = km_actual - km_ult
+        km_limite = 5000  # Intervalo para cambio de aceite/revision
+        km_restantes = km_limite - km_recorridos
+        porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Kilometraje Actual", f"{km_actual:,} km")
+        c2.metric("Último Servicio", f"{km_ult:,} km", f"Hace {km_recorridos:,} km", delta_color="off")
+        
+        st.write("Progreso hacia el próximo servicio:")
+        
+        if km_restantes > 1000:
+            c3.metric("Próximo en", f"{km_restantes:,} km")
+            st.progress(porcentaje)
+            st.success(f"✅ Flotilla en estado óptimo. Próxima revisión sugerida a los {km_ult + km_limite:,} km.")
+        elif km_restantes > 0:
+            c3.metric("Próximo en", f"{km_restantes:,} km", "¡Pronto!", delta_color="inverse")
+            st.progress(porcentaje)
+            st.warning(f"⚠️ Atención: Preparar presupuesto. Se acerca el servicio de 5,000 km. (A los {km_ult + km_limite:,} km)")
+        else:
+            c3.metric("Atraso de Servicio", f"{abs(km_restantes):,} km", "CRÍTICO", delta_color="inverse")
+            st.progress(1.0)
+            st.error(f"🚨 ALERTA ROJA: El vehículo ha excedido el límite de mantenimiento de seguridad. Programar taller INMEDIATAMENTE.")
+    else:
+        st.info("ℹ️ No hay registros de 'Mantenimiento' en la base de datos. Cuando realices un cambio de aceite, regístralo en la pestaña GASTOS seleccionando 'Mantenimiento' e ingresando el kilometraje para activar este panel.")
+
+# --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
@@ -130,18 +160,13 @@ if not st.session_state['autenticado']:
         if st.session_state['autenticado']: st.rerun()
     st.stop()
 
-# --- 3. INTERFAZ Y ESTILOS AVANZADOS ---
+# --- 4. INTERFAZ Y ESTILOS ---
 u = st.session_state['user']
 ver = st.session_state['ver']
 
-if ver == "Premium":
-    color_pri = "#D4AF37"
-    bg_style = "rgba(0, 0, 0, 0.94)"
-    titulo_app = "PREMIUM SYSTEM"
-else:
-    color_pri = "#25D366"
-    bg_style = "rgba(5, 5, 5, 0.92)"
-    titulo_app = "ESTANDAR SYSTEM"
+color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
+bg_style = "rgba(0, 0, 0, 0.94)" if ver == "Premium" else "rgba(5, 5, 5, 0.92)"
+titulo_app = "PREMIUM SYSTEM" if ver == "Premium" else "ESTANDAR SYSTEM"
 
 st.markdown(f"""
     <style>
@@ -152,7 +177,6 @@ st.markdown(f"""
 
 c_logo, c_tit = st.columns([1, 5])
 with c_logo:
-    # Aislamiento de logotipos restaurado
     if ver == "Premium":
         if os.path.exists("logo.png"): st.image("logo.png", width=120)
     else:
@@ -162,31 +186,30 @@ with c_logo:
 with c_tit:
     st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
 
-tabs = st.tabs(["REGISTRAR VIAJE", "GASTOS OPERATIVOS", "DATOS Y REPORTES"])
+tabs = st.tabs(["VIAJES", "GASTOS", "DATOS", "TALLER"])
 
 with tabs[0]: 
-    st.subheader("Registro de Ruta")
     with st.form("f_v", clear_on_submit=True):
         c = st.text_input("Cliente / Empresa")
-        m = st.number_input("Ingreso por Viaje (CRC)", min_value=0, step=1)
+        m = st.number_input("Monto (CRC)", min_value=0, step=1)
         k = st.number_input("Kilometraje Actual", min_value=0, step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
             supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-            st.success("Ruta registrada con exito"); st.rerun()
+            st.success("Ruta registrada"); st.rerun()
 
 with tabs[1]: 
-    st.subheader("Registro de Gastos")
     with st.form("f_g", clear_on_submit=True):
-        t = st.selectbox("Concepto Operativo", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otros"])
-        mg = st.number_input("Monto del Gasto (CRC)", min_value=0, step=1)
-        f = st.file_uploader("Adjuntar Comprobante", type=['jpg','png','jpeg'])
+        # NOTA: Mantenimiento esta en la lista para que active la funcion del Taller
+        t = st.selectbox("Concepto", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otros"])
+        mg = st.number_input("Monto (CRC)", min_value=0, step=1)
+        kg = st.number_input("Kilometraje del Gasto (Opcional pero recomendado)", min_value=0, step=1)
+        f = st.file_uploader("Comprobante", type=['jpg','png','jpeg'])
         if st.form_submit_button("REGISTRAR GASTO"):
             fb64 = procesar_foto(f) if f else None
-            supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64}).execute()
-            st.success("Gasto registrado y comprobante guardado"); st.rerun()
+            supabase.table("gastos").insert({"concepto": t, "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
+            st.success("Guardado"); st.rerun()
 
 with tabs[2]: 
-    st.subheader("Panel de Control Financiero")
     res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
     res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
     df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
@@ -196,37 +219,33 @@ with tabs[2]:
     t_g = df_g['monto'].sum() if not df_g.empty else 0
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("TOTAL INGRESOS", f"CRC {t_v:,}")
-    c2.metric("TOTAL GASTOS", f"CRC {t_g:,}")
-    c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
+    c1.metric("INGRESOS", f"CRC {t_v:,}")
+    c2.metric("GASTOS", f"CRC {t_g:,}")
+    c3.metric("NETO", f"CRC {t_v - t_g:,}")
 
-    st.write("---")
-    st.subheader("Analisis Estrategico Aisaac-AI")
-    if st.button("SOLICITAR ANALISIS DE DATOS"):
-        with st.spinner("Procesando informacion operativa..."):
-            time.sleep(2)
-            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px; background: rgba(138, 43, 226, 0.1);'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
+    if st.button("ANALISIS DE IA"):
+        st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
     if not df_g.empty:
-        st.write("---")
-        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto", title="Distribucion de Gastos"), use_container_width=True)
+        st.plotly_chart(px.bar(df_g.groupby("concepto")["monto"].sum().reset_index(), x="concepto", y="monto", color="concepto"), use_container_width=True)
         
-        st.subheader("Exportar Documentacion")
         d1, d2 = st.columns(2)
         with d1:
             pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
-            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "DESCARGAR DOCUMENTO PDF", "#DA0B20"), unsafe_allow_html=True)
+            st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "PDF", "#DA0B20"), unsafe_allow_html=True)
         with d2:
             df_limpio = df_g.drop(columns=['foto_comprobante'], errors='ignore')
             csv = df_limpio.to_csv(index=False).encode('utf-8')
-            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "DESCARGAR FORMATO EXCEL", "#107C41"), unsafe_allow_html=True)
+            st.markdown(crear_boton_descarga(csv, "Gastos.csv", "EXCEL", "#107C41"), unsafe_allow_html=True)
         
-        st.write("---")
-        st.subheader("Historial de Comprobantes")
         for i, row in df_g.iterrows():
             with st.expander(f"{row['concepto']} - CRC {row['monto']:,}"):
                 if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
+                if st.button("Eliminar", key=f"del_{row['id']}"):
                     supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
+
+with tabs[3]:
+    # Llama al nuevo motor de mantenimiento
+    panel_mantenimiento(u)
 
 st.markdown(f"<div style='text-align: center; color: {color_pri}; margin-top: 50px; opacity: 0.5;'>AISAAC-SHIELD PROTECTED</div>", unsafe_allow_html=True)
