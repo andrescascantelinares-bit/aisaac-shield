@@ -52,9 +52,9 @@ def preparar_fondo_para_pdf():
         return ruta_original
 
 def formatear_fecha_cr(fecha_iso, corto=False):
-    if not fecha_iso: return "Sin registro"
+    if not fecha_iso or str(fecha_iso).lower() == 'nan': 
+        return "Fecha no registrada"
     try:
-        # Conversion de UTC a Costa Rica
         dt_utc = datetime.fromisoformat(str(fecha_iso).replace('Z', '+00:00'))
         dt_cr = dt_utc.astimezone(ZONA_CR)
         if corto:
@@ -82,14 +82,13 @@ def generar_pdf_pro(df, titulo, total):
         
         pdf.set_fill_color(75, 0, 130); pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
-        # Ajuste de celdas para incluir la hora
         pdf.cell(45, 10, "Fecha/Hora", 1, 0, 'C', True)
         pdf.cell(95, 10, "Concepto Detallado", 1, 0, 'C', True)
         pdf.cell(40, 10, "Monto", 1, 1, 'C', True)
         
         pdf.set_text_color(30, 30, 30); pdf.set_font("Arial", size=10)
         for _, row in df.iterrows():
-            f_str = formatear_fecha_cr(row.get('created_at',''), corto=True)
+            f_str = formatear_fecha_cr(row.get('created_at'), corto=True)
             c_str = str(row.get('concepto', 'Gasto'))[:45]
             m_str = f"CRC {row.get('monto', 0):,}"
             
@@ -112,7 +111,6 @@ def crear_boton_descarga(datos, nombre, texto, color):
 def motor_ia_analisis(df_gastos, df_viajes):
     if df_gastos.empty: return "SISTEMA: Datos insuficientes para generar analisis."
     total_g = df_gastos['monto'].sum()
-    # Limpieza para graficar por categoria principal
     df_gastos['cat_base'] = df_gastos['concepto'].apply(lambda x: x.split(' - ')[0] if ' - ' in str(x) else x)
     por_cat = df_gastos.groupby('cat_base')['monto'].sum()
     max_cat = por_cat.idxmax()
@@ -127,41 +125,48 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
-        res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).order("km_actual", desc=True).limit(1).execute()
+        # Recuperacion segura sin forzar el orden por base de datos para evitar colapsos
+        res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).execute()
         
-        km_v = res_v.data[0]['km_actual'] if res_v.data and res_v.data[0].get('km_actual') is not None else 0
-        km_g = res_g.data[0]['km_actual'] if res_g.data and res_g.data[0].get('km_actual') is not None else 0
+        df_v_km = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
+        df_g_km = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
+        
+        km_v = df_v_km['km_actual'].max() if not df_v_km.empty and 'km_actual' in df_v_km.columns else 0
+        km_g = df_g_km['km_actual'].max() if not df_g_km.empty and 'km_actual' in df_g_km.columns else 0
         km_actual = max(km_v, km_g)
+        if pd.isna(km_actual): km_actual = 0
         
-        # Busqueda flexible para encontrar la palabra Mantenimiento en los conceptos detallados
-        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").order("km_actual", desc=True).limit(1).execute()
+        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").execute()
+        df_m = pd.DataFrame(res_m.data) if res_m.data else pd.DataFrame()
         
-        if res_m.data and res_m.data[0].get('km_actual') is not None:
-            km_ult = res_m.data[0]['km_actual']
+        if not df_m.empty and 'km_actual' in df_m.columns:
+            km_ult = df_m['km_actual'].max()
+            if pd.isna(km_ult): km_ult = 0
+            
             km_recorridos = km_actual - km_ult
             km_limite = 5000 
             km_restantes = km_limite - km_recorridos
             
             c1, c2, c3 = st.columns(3)
-            c1.metric("Kilometraje Actual", f"{km_actual:,} km")
-            c2.metric("Ultimo Servicio", f"{km_ult:,} km", f"Hace {km_recorridos:,} km", delta_color="off")
+            c1.metric("Kilometraje Actual", f"{int(km_actual):,} km")
+            c2.metric("Ultimo Servicio", f"{int(km_ult):,} km", f"Hace {int(km_recorridos):,} km", delta_color="off")
             
             porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
             st.write("Progreso hacia el proximo servicio de seguridad:")
             st.progress(porcentaje)
             
             if km_restantes > 1000:
-                st.success(f"Sistema en estado nominal. Proximo servicio a los {km_ult + km_limite:,} km.")
+                st.success(f"Sistema en estado nominal. Proximo servicio a los {int(km_ult + km_limite):,} km.")
             elif km_restantes > 0:
-                st.warning(f"Atencion preventiva: Faltan {km_restantes:,} km para el servicio.")
+                st.warning(f"Atencion preventiva: Faltan {int(km_restantes):,} km para el servicio.")
             else:
-                st.error(f"ALERTA CRITICA: Servicio de mantenimiento vencido por {abs(km_restantes):,} km.")
+                st.error(f"ALERTA CRITICA: Servicio de mantenimiento vencido por {int(abs(km_restantes)):,} km.")
         else:
             st.info("Para activar el seguimiento logistico, registre un gasto bajo la categoria Mantenimiento.")
             
     except Exception as e:
-        st.warning("El panel de mantenimiento requiere la columna km_actual en la tabla gastos.")
+        st.warning(f"Aviso de sistema: Configurando modulo de mantenimiento. Detalle tecnico: {str(e)[:50]}")
 
 # --- 3. LOGIN ---
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
@@ -217,7 +222,6 @@ with tabs[0]:
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        # Sistema de categoria mas detalle libre
         c_base = st.selectbox("Categoria", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro"])
         c_especifico = st.text_input("Detalle del gasto (Que se compro?)")
         mg = st.number_input("Monto (CRC)", min_value=0, step=1)
@@ -226,7 +230,6 @@ with tabs[1]:
         
         if st.form_submit_button("REGISTRAR GASTO"):
             try:
-                # Fusionamos categoria y detalle
                 concepto_final = f"{c_base} - {c_especifico.strip()}" if c_especifico.strip() else c_base
                 fb64 = procesar_foto(f) if f else None
                 supabase.table("gastos").insert({
@@ -238,14 +241,20 @@ with tabs[1]:
                 }).execute()
                 st.success("Gasto procesado"); st.rerun()
             except:
-                st.error("Error: Verifique la configuracion de la tabla gastos.")
+                st.error("Error: Verifique la conexion con la base de datos.")
 
 with tabs[2]: 
     try:
+        # Se elimina el '.order()' de Supabase para evitar errores si falta la columna. Se ordenara con Pandas.
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
-        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).order("created_at", desc=True).execute()
+        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+        
         df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
+        
+        # Ordenamiento matematico seguro por ID (del mas nuevo al mas viejo)
+        if not df_g.empty and 'id' in df_g.columns:
+            df_g = df_g.sort_values(by='id', ascending=False)
 
         t_v = df_v['monto'].sum() if not df_v.empty else 0
         t_g = df_g['monto'].sum() if not df_g.empty else 0
@@ -259,7 +268,6 @@ with tabs[2]:
             st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
 
         if not df_g.empty:
-            # Grafica por categoria principal para evitar desorden
             df_g['cat_grafica'] = df_g['concepto'].apply(lambda x: x.split(' - ')[0] if ' - ' in str(x) else x)
             st.plotly_chart(px.bar(df_g.groupby("cat_grafica")["monto"].sum().reset_index(), x="cat_grafica", y="monto", color="cat_grafica"), use_container_width=True)
             
@@ -275,14 +283,13 @@ with tabs[2]:
             st.write("---")
             st.subheader("Historial detallado con marca de tiempo")
             for i, row in df_g.iterrows():
-                # Mostramos la fecha y hora completa en el historial
                 timestamp = formatear_fecha_cr(row.get('created_at'))
                 with st.expander(f"{timestamp} | {row['concepto']} | CRC {row['monto']:,}"):
                     if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
                     if st.button("Eliminar", key=f"del_{row['id']}"):
                         supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
-    except:
-        st.error("Error al cargar datos. Verifique la estructura de Supabase.")
+    except Exception as e:
+        st.error(f"Error al procesar los datos visuales. Detalle: {str(e)[:50]}")
 
 with tabs[3]:
     panel_mantenimiento(u)
