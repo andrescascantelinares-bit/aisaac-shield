@@ -167,13 +167,16 @@ def panel_mantenimiento(u):
     except Exception as e:
         st.warning(f"Aviso de sistema: Configurando modulo de mantenimiento. Detalle tecnico: {str(e)[:50]}")
 
+
 # --- 3. LOGIN ---
-if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
+# PARCHE DE SEGURIDAD: Si es una sesión vieja que no tiene 'nombre_ui', forzamos el cierre de sesión
+if 'autenticado' not in st.session_state or 'nombre_ui' not in st.session_state: 
+    st.session_state['autenticado'] = False
+
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
     pin = st.text_input("PIN DE ACCESO", type="password")
     
-    # MODIFICACION AQUI: Asignamos IDs enteros (1 y 2) y agregamos el nombre para la pantalla
     if st.button("ACCEDER AL SISTEMA"):
         if pin == "8715": 
             st.session_state.update({'autenticado': True, 'user': 1, 'nombre_ui': "Dani", 'ver': "Estandar"})
