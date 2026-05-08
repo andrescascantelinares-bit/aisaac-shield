@@ -172,15 +172,23 @@ if 'autenticado' not in st.session_state: st.session_state['autenticado'] = Fals
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
     pin = st.text_input("PIN DE ACCESO", type="password")
+    
+    # MODIFICACION AQUI: Asignamos IDs enteros (1 y 2) y agregamos el nombre para la pantalla
     if st.button("ACCEDER AL SISTEMA"):
-        if pin == "8715": st.session_state.update({'autenticado': True, 'user': "dany", 'ver': "Estandar"})
-        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': "padre_andres", 'ver': "Premium"})
-        else: st.error("PIN Incorrecto")
+        if pin == "8715": 
+            st.session_state.update({'autenticado': True, 'user': 1, 'nombre_ui': "Dani", 'ver': "Estandar"})
+        elif pin == "8742": 
+            st.session_state.update({'autenticado': True, 'user': 2, 'nombre_ui': "Andrés", 'ver': "Premium"})
+        else: 
+            st.error("PIN Incorrecto")
+            
         if st.session_state['autenticado']: st.rerun()
     st.stop()
 
 # --- 4. INTERFAZ Y ESTILOS ---
+# MODIFICACION AQUI: Traemos la nueva variable 'nombre_ui' y recordamos que 'u' ahora es un entero
 u = st.session_state['user']
+nombre_pantalla = st.session_state['nombre_ui']
 ver = st.session_state['ver']
 
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
@@ -203,7 +211,8 @@ with c_logo:
         elif os.path.exists("logo.png"): st.image("logo.png", width=120)
 
 with c_tit:
-    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{u.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
+    # MODIFICACION AQUI: Usamos 'nombre_pantalla' en lugar de 'u' para que no muestre el ID numerico en el titulo
+    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{nombre_pantalla.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["VIAJES", "GASTOS", "DATOS", "TALLER"])
 
@@ -214,6 +223,7 @@ with tabs[0]:
         k = st.number_input("Kilometraje Actual", min_value=0, step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
             try:
+                # Aqui 'u' funciona perfecto porque ahora es un numero, igual que en la base de datos
                 supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
                 st.success("Operacion registrada")
                 st.rerun()
@@ -246,6 +256,7 @@ with tabs[1]:
 
 with tabs[2]: 
     try:
+        # Aqui las consultas a la BD funcionan perfecto buscando por el ID numerico
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
         
@@ -272,7 +283,8 @@ with tabs[2]:
             
             d1, d2 = st.columns(2)
             with d1:
-                pdf = generar_pdf_pro(df_g, f"REPORTE {u.upper()}", t_g)
+                # MODIFICACION AQUI: Usamos 'nombre_pantalla' para que el PDF salga con el nombre real
+                pdf = generar_pdf_pro(df_g, f"REPORTE {nombre_pantalla.upper()}", t_g)
                 st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "GENERAR PDF", "#DA0B20"), unsafe_allow_html=True)
             with d2:
                 df_xl = df_g.drop(columns=['foto_comprobante', 'cat_grafica'], errors='ignore')
