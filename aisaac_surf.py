@@ -259,6 +259,32 @@ with tabs[1]:
 
 with tabs[2]: 
     try:
+        # --- NUEVO: FILTRO POR MES ---
+        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+        
+        df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
+        df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
+
+        if not df_v.empty or not df_g.empty:
+            st.subheader("📅 Filtro de Periodo")
+            # Convertimos las fechas a objetos datetime de pandas
+            if not df_v.empty: df_v['fecha_dt'] = pd.to_datetime(df_v['created_at'])
+            if not df_g.empty: df_g['fecha_dt'] = pd.to_datetime(df_g['created_at'])
+            
+            # Selectores de Mes y Año
+            c_mes, c_ano = st.columns(2)
+            meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            
+            mes_sel = c_mes.selectbox("Seleccionar Mes", range(1, 13), index=datetime.now().month-1, format_func=lambda x: meses_nombres[x-1])
+            ano_sel = c_ano.selectbox("Seleccionar Año", [2024, 2025, 2026], index=2) # 2026 como default
+
+            # Aplicar el filtro a los DataFrames
+            if not df_v.empty:
+                df_v = df_v[(df_v['fecha_dt'].dt.month == mes_sel) & (df_v['fecha_dt'].dt.year == ano_sel)]
+            if not df_g.empty:
+                df_g = df_g[(df_g['fecha_dt'].dt.month == mes_sel) & (df_g['fecha_dt'].dt.year == ano_sel)]
         # Aqui las consultas a la BD funcionan perfecto buscando por el ID numerico
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
