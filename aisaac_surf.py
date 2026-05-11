@@ -125,8 +125,9 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).execute()
-        res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).execute()
+        user_str = "padre_andres" if u == 2 else "dany"
+        res_v = supabase.table("viajes").select("km_actual").in_("cliente_id", [u, user_str]).execute()
+        res_g = supabase.table("gastos").select("km_actual").in_("cliente_id", [u, user_str]).execute()
         
         df_v_km = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g_km = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
@@ -136,190 +137,124 @@ def panel_mantenimiento(u):
         km_actual = max(km_v, km_g)
         if pd.isna(km_actual): km_actual = 0
         
-        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").execute()
+        res_m = supabase.table("gastos").select("km_actual").in_("cliente_id", [u, user_str]).ilike("concepto", "%Mantenimiento%").execute()
         df_m = pd.DataFrame(res_m.data) if res_m.data else pd.DataFrame()
         
         if not df_m.empty and 'km_actual' in df_m.columns:
             km_ult = df_m['km_actual'].max()
             if pd.isna(km_ult): km_ult = 0
-            
             km_recorridos = km_actual - km_ult
             km_limite = 5000 
             km_restantes = km_limite - km_recorridos
-            
             c1, c2, c3 = st.columns(3)
             c1.metric("Kilometraje Actual", f"{int(km_actual):,} km")
             c2.metric("Ultimo Servicio", f"{int(km_ult):,} km", f"Hace {int(km_recorridos):,} km", delta_color="off")
-            
-            porcentaje = max(0.0, min(km_recorridos / km_limite, 1.0))
-            st.write("Progreso hacia el proximo servicio de seguridad:")
-            st.progress(porcentaje)
-            
-            if km_restantes > 1000:
-                st.success(f"Sistema en estado nominal. Proximo servicio a los {int(km_ult + km_limite):,} km.")
-            elif km_restantes > 0:
-                st.warning(f"Atencion preventiva: Faltan {int(km_restantes):,} km para el servicio.")
-            else:
-                st.error(f"ALERTA CRITICA: Servicio de mantenimiento vencido por {int(abs(km_restantes)):,} km.")
+            st.progress(max(0.0, min(km_recorridos / km_limite, 1.0)))
+            if km_restantes > 1000: st.success(f"Estado nominal. Proximo servicio: {int(km_ult + km_limite):,} km.")
+            elif km_restantes > 0: st.warning(f"Preventivo: Faltan {int(km_restantes):,} km.")
+            else: st.error(f"VENCIDO por {int(abs(km_restantes)):,} km.")
         else:
-            st.info("Para activar el seguimiento logistico, registre un gasto bajo la categoria Mantenimiento.")
-            
+            st.info("Registre un gasto como 'Mantenimiento' para activar seguimiento.")
     except Exception as e:
-        st.warning(f"Aviso de sistema: Configurando modulo de mantenimiento. Detalle tecnico: {str(e)[:50]}")
-
+        st.warning(f"Aviso taller: {str(e)[:50]}")
 
 # --- 3. LOGIN ---
-if 'autenticado' not in st.session_state or 'nombre_ui' not in st.session_state: 
-    st.session_state['autenticado'] = False
+if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 
 if not st.session_state['autenticado']:
     st.markdown("<h1 style='text-align: center; color: #8A2BE2;'>AISAAC-SHIELD</h1>", unsafe_allow_html=True)
     pin = st.text_input("PIN DE ACCESO", type="password")
-    
-    if st.button("ACCEDER AL SISTEMA"):
-        if pin == "8715": 
-            st.session_state.update({'autenticado': True, 'user': 1, 'nombre_ui': "Dani", 'ver': "Estandar"})
-        elif pin == "8742": 
-            st.session_state.update({'autenticado': True, 'user': 2, 'nombre_ui': "Andrés", 'ver': "Premium"})
-        else: 
-            st.error("PIN Incorrecto")
-            
+    if st.button("ACCEDER"):
+        if pin == "8715": st.session_state.update({'autenticado': True, 'user': 1, 'nombre_ui': "Dani", 'ver': "Estandar"})
+        elif pin == "8742": st.session_state.update({'autenticado': True, 'user': 2, 'nombre_ui': "Andrés", 'ver': "Premium"})
+        else: st.error("PIN Incorrecto")
         if st.session_state['autenticado']: st.rerun()
     st.stop()
 
-# --- 4. INTERFAZ Y ESTILOS ---
+# --- 4. INTERFAZ ---
 u = st.session_state['user']
 nombre_pantalla = st.session_state['nombre_ui']
 ver = st.session_state['ver']
-
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
-bg_style = "rgba(0, 0, 0, 0.94)" if ver == "Premium" else "rgba(5, 5, 5, 0.92)"
-titulo_app = "PREMIUM SYSTEM" if ver == "Premium" else "ESTANDAR SYSTEM"
 
-st.markdown(f"""
-    <style>
-    .stApp {{ background-color: #0e1117; }}
-    h1, h2, h3, label, .stMetric {{ color: {color_pri} !important; }}
-    </style>
-""", unsafe_allow_html=True)
+st.markdown(f"<style>h1, h2, h3, label, .stMetric {{ color: {color_pri} !important; }}</style>", unsafe_allow_html=True)
 
-c_logo, c_tit = st.columns([1, 5])
-with c_logo:
-    if ver == "Premium":
-        if os.path.exists("logo.png"): st.image("logo.png", width=120)
-    else:
-        if os.path.exists("logo_primo.png"): st.image("logo_primo.png", width=120)
-        elif os.path.exists("logo.png"): st.image("logo.png", width=120)
-
-with c_tit:
-    st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{nombre_pantalla.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
+st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center;'><h2 style='margin:0;'>{nombre_pantalla.upper()} - {'PREMIUM' if ver == 'Premium' else 'ESTANDAR'} SYSTEM</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["VIAJES", "GASTOS", "DATOS", "TALLER"])
 
 with tabs[0]: 
     with st.form("f_v", clear_on_submit=True):
-        c = st.text_input("Cliente / Empresa")
+        c = st.text_input("Cliente")
         m = st.number_input("Monto (CRC)", min_value=0, step=1)
-        k = st.number_input("Kilometraje Actual", min_value=0, step=1)
-        if st.form_submit_button("GUARDAR VIAJE"):
-            try:
-                supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
-                st.success("Operacion registrada")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error de comunicacion con el servidor: {str(e)}")
+        k = st.number_input("Kilometraje", min_value=0, step=1)
+        if st.form_submit_button("GUARDAR"):
+            user_val = "padre_andres" if u == 2 else "dany"
+            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": user_val}).execute()
+            st.success("Registrado"); st.rerun()
 
 with tabs[1]: 
     with st.form("f_g", clear_on_submit=True):
-        c_base = st.selectbox("Categoria", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro"])
-        c_especifico = st.text_input("Detalle del gasto (Que se compro?)")
+        cat = st.selectbox("Categoria", ["Diesel", "Peaje", "Viaticos", "Repuestos", "Mantenimiento", "Otro"])
+        det = st.text_input("Detalle")
         mg = st.number_input("Monto (CRC)", min_value=0, step=1)
-        kg = st.number_input("Kilometraje del Vehiculo", min_value=0, step=1)
-        f = st.file_uploader("Comprobante Digital", type=['jpg','png','jpeg'])
-        
-        if st.form_submit_button("REGISTRAR GASTO"):
-            try:
-                concepto_final = f"{c_base} - {c_especifico.strip()}" if c_especifico.strip() else c_base
-                fb64 = procesar_foto(f) if f else None
-                supabase.table("gastos").insert({
-                    "concepto": concepto_final, 
-                    "monto": int(mg), 
-                    "cliente_id": u, 
-                    "foto_comprobante": fb64, 
-                    "km_actual": int(kg)
-                }).execute()
-                st.success("Gasto procesado")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: Verifique la conexion con la base de datos. Detalle: {str(e)}")
+        kg = st.number_input("Kilometraje", min_value=0, step=1)
+        f = st.file_uploader("Foto", type=['jpg','png','jpeg'])
+        if st.form_submit_button("REGISTRAR"):
+            user_val = "padre_andres" if u == 2 else "dany"
+            fb64 = procesar_foto(f) if f else None
+            supabase.table("gastos").insert({"concepto": f"{cat} - {det}", "monto": int(mg), "cliente_id": user_val, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
+            st.success("Gasto guardado"); st.rerun()
 
 with tabs[2]: 
     try:
-        # CONSULTA INICIAL A SUPABASE
-        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
-        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+        user_str = "padre_andres" if u == 2 else "dany"
+        # Traemos datos que coincidan con el ID numerico o el ID de texto
+        res_v = supabase.table("viajes").select("*").in_("cliente_id", [u, user_str]).execute()
+        res_g = supabase.table("gastos").select("*").in_("cliente_id", [u, user_str]).execute()
         
         df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
-        # FILTRO POR MES Y AÑO
         st.subheader("Filtro de Periodo")
         c_mes, c_ano = st.columns(2)
-        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        
-        mes_sel = c_mes.selectbox("Seleccionar Mes", range(1, 13), index=datetime.now().month-1, format_func=lambda x: meses_nombres[x-1])
-        ano_sel = c_ano.selectbox("Seleccionar Año", [2024, 2025, 2026], index=2)
+        mes_sel = c_mes.selectbox("Mes", range(1, 13), index=datetime.now().month-1, format_func=lambda x: ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][x-1])
+        ano_sel = c_ano.selectbox("Año", [2024, 2025, 2026], index=2)
 
-        # APLICAR FILTRO A LOS DATAFRAMES SI TIENEN DATOS
-        if not df_v.empty:
-            df_v['fecha_dt'] = pd.to_datetime(df_v['created_at'])
-            df_v = df_v[(df_v['fecha_dt'].dt.month == mes_sel) & (df_v['fecha_dt'].dt.year == ano_sel)]
-            
-        if not df_g.empty:
-            df_g['fecha_dt'] = pd.to_datetime(df_g['created_at'])
-            df_g = df_g[(df_g['fecha_dt'].dt.month == mes_sel) & (df_g['fecha_dt'].dt.year == ano_sel)]
-            if 'id' in df_g.columns:
-                df_g = df_g.sort_values(by='id', ascending=False)
+        def filtrar(df, m, a):
+            if df.empty: return df
+            # Si created_at es nulo, le ponemos la fecha actual para no perder el registro
+            df['created_at'] = df['created_at'].fillna(datetime.now().isoformat())
+            df['fecha_dt'] = pd.to_datetime(df['created_at'])
+            return df[(df['fecha_dt'].dt.month == m) & (df['fecha_dt'].dt.year == a)]
 
-        # CALCULOS CON DATOS FILTRADOS
+        df_v = filtrar(df_v, mes_sel, ano_sel)
+        df_g = filtrar(df_g, mes_sel, ano_sel)
+
         t_v = df_v['monto'].sum() if not df_v.empty else 0
         t_g = df_g['monto'].sum() if not df_g.empty else 0
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("INGRESOS TOTALES", f"CRC {t_v:,}")
-        c2.metric("GASTOS TOTALES", f"CRC {t_g:,}")
-        c3.metric("BALANCE NETO", f"CRC {t_v - t_g:,}")
-
-        if st.button("ANALISIS DE IA"):
-            st.markdown(f"<div style='border: 1px solid #8A2BE2; padding: 15px; border-radius: 10px;'>{motor_ia_analisis(df_g, df_v)}</div>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("INGRESOS", f"CRC {t_v:,}")
+        col2.metric("GASTOS", f"CRC {t_g:,}")
+        col3.metric("NETO", f"CRC {t_v - t_g:,}")
 
         if not df_g.empty:
-            df_g['cat_grafica'] = df_g['concepto'].apply(lambda x: x.split(' - ')[0] if ' - ' in str(x) else x)
-            st.plotly_chart(px.bar(df_g.groupby("cat_grafica")["monto"].sum().reset_index(), x="cat_grafica", y="monto", color="cat_grafica"), use_container_width=True)
+            df_g['cat'] = df_g['concepto'].apply(lambda x: str(x).split(' - ')[0])
+            st.plotly_chart(px.bar(df_g.groupby("cat")["monto"].sum().reset_index(), x="cat", y="monto", color="cat"), use_container_width=True)
             
-            d1, d2 = st.columns(2)
-            with d1:
-                pdf = generar_pdf_pro(df_g, f"REPORTE {nombre_pantalla.upper()} - {meses_nombres[mes_sel-1]} {ano_sel}", t_g)
-                st.markdown(crear_boton_descarga(pdf, f"Reporte_{mes_sel}_{ano_sel}.pdf", "GENERAR PDF", "#DA0B20"), unsafe_allow_html=True)
-            with d2:
-                df_xl = df_g.drop(columns=['foto_comprobante', 'cat_grafica', 'fecha_dt'], errors='ignore')
-                csv = df_xl.to_csv(index=False).encode('utf-8')
-                st.markdown(crear_boton_descarga(csv, f"Gastos_{mes_sel}_{ano_sel}.csv", "GENERAR EXCEL", "#107C41"), unsafe_allow_html=True)
+            if st.button("ANALISIS IA"): st.info(motor_ia_analisis(df_g, df_v))
             
-            st.write("---")
-            st.subheader("Historial detallado con marca de tiempo")
-            for i, row in df_g.iterrows():
-                timestamp = formatear_fecha_cr(row.get('created_at'))
-                with st.expander(f"{timestamp} | {row['concepto']} | CRC {row['monto']:,}"):
-                    if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
-                    if st.button("Eliminar", key=f"del_{row['id']}"):
-                        supabase.table("gastos").delete().eq("id", row['id']).execute()
+            pdf = generar_pdf_pro(df_g, f"REPORTE {mes_sel}/{ano_sel}", t_g)
+            st.markdown(crear_boton_descarga(pdf, f"Reporte_{mes_sel}.pdf", "DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
+            
+            for i, r in df_g.sort_values('created_at', ascending=False).iterrows():
+                with st.expander(f"{formatear_fecha_cr(r['created_at'], True)} | {r['concepto']} | CRC {r['monto']:,}"):
+                    if r.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{r['foto_comprobante']}")
+                    if st.button("Borrar", key=f"d_{r['id']}"):
+                        supabase.table("gastos").delete().eq("id", r['id']).execute()
                         st.rerun()
-    except Exception as e:
-        st.error(f"Error al procesar los datos visuales. Detalle: {str(e)[:50]}")
+    except Exception as e: st.error(f"Error carga: {e}")
 
-with tabs[3]:
-    panel_mantenimiento(u)
-
-st.markdown(f"<div style='text-align: center; color: {color_pri}; margin-top: 50px; opacity: 0.5;'>AISAAC-SHIELD PROTECTED</div>", unsafe_allow_html=True)
+with tabs[3]: panel_mantenimiento(u)
+st.markdown("<center style='opacity:0.3;'>AISAAC-SHIELD PROTECTED</center>", unsafe_allow_html=True)
