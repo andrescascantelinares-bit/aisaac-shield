@@ -125,9 +125,9 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        user_str = "padre_andres" if u == 2 else "dany"
-        res_v = supabase.table("viajes").select("km_actual").in_("cliente_id", [u, user_str]).execute()
-        res_g = supabase.table("gastos").select("km_actual").in_("cliente_id", [u, user_str]).execute()
+        # Consulta estricta por ID numerico (Integer)
+        res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).execute()
         
         df_v_km = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g_km = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
@@ -137,7 +137,7 @@ def panel_mantenimiento(u):
         km_actual = max(km_v, km_g)
         if pd.isna(km_actual): km_actual = 0
         
-        res_m = supabase.table("gastos").select("km_actual").in_("cliente_id", [u, user_str]).ilike("concepto", "%Mantenimiento%").execute()
+        res_m = supabase.table("gastos").select("km_actual").eq("cliente_id", u).ilike("concepto", "%Mantenimiento%").execute()
         df_m = pd.DataFrame(res_m.data) if res_m.data else pd.DataFrame()
         
         if not df_m.empty and 'km_actual' in df_m.columns:
@@ -178,7 +178,6 @@ ver = st.session_state['ver']
 color_pri = "#D4AF37" if ver == "Premium" else "#25D366"
 
 st.markdown(f"<style>h1, h2, h3, label, .stMetric {{ color: {color_pri} !important; }}</style>", unsafe_allow_html=True)
-
 st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center;'><h2 style='margin:0;'>{nombre_pantalla.upper()} - {'PREMIUM' if ver == 'Premium' else 'ESTANDAR'} SYSTEM</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["VIAJES", "GASTOS", "DATOS", "TALLER"])
@@ -189,8 +188,8 @@ with tabs[0]:
         m = st.number_input("Monto (CRC)", min_value=0, step=1)
         k = st.number_input("Kilometraje", min_value=0, step=1)
         if st.form_submit_button("GUARDAR"):
-            user_val = "padre_andres" if u == 2 else "dany"
-            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": user_val}).execute()
+            # Solo enviamos el numero entero 'u' (1 o 2)
+            supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
             st.success("Registrado"); st.rerun()
 
 with tabs[1]: 
@@ -201,17 +200,16 @@ with tabs[1]:
         kg = st.number_input("Kilometraje", min_value=0, step=1)
         f = st.file_uploader("Foto", type=['jpg','png','jpeg'])
         if st.form_submit_button("REGISTRAR"):
-            user_val = "padre_andres" if u == 2 else "dany"
+            # Solo enviamos el numero entero 'u' (1 o 2)
             fb64 = procesar_foto(f) if f else None
-            supabase.table("gastos").insert({"concepto": f"{cat} - {det}", "monto": int(mg), "cliente_id": user_val, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
+            supabase.table("gastos").insert({"concepto": f"{cat} - {det}", "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
             st.success("Gasto guardado"); st.rerun()
 
 with tabs[2]: 
     try:
-        user_str = "padre_andres" if u == 2 else "dany"
-        # Traemos datos que coincidan con el ID numerico o el ID de texto
-        res_v = supabase.table("viajes").select("*").in_("cliente_id", [u, user_str]).execute()
-        res_g = supabase.table("gastos").select("*").in_("cliente_id", [u, user_str]).execute()
+        # CONSULTA ESTRICTA POR ENTERO (Resuelve el error de sintaxis)
+        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
+        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
         
         df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
@@ -223,7 +221,6 @@ with tabs[2]:
 
         def filtrar(df, m, a):
             if df.empty: return df
-            # Si created_at es nulo, le ponemos la fecha actual para no perder el registro
             df['created_at'] = df['created_at'].fillna(datetime.now().isoformat())
             df['fecha_dt'] = pd.to_datetime(df['created_at'])
             return df[(df['fecha_dt'].dt.month == m) & (df['fecha_dt'].dt.year == a)]
