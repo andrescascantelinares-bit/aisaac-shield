@@ -55,7 +55,8 @@ def formatear_fecha_cr(fecha_iso, corto=False):
     if not fecha_iso or str(fecha_iso).lower() == 'nan': 
         return "Fecha no registrada"
     try:
-        dt_utc = datetime.fromisoformat(str(fecha_iso).replace('Z', '+00:00'))
+        # Normalizamos a UTC para evitar conflictos de zona horaria
+        dt_utc = pd.to_datetime(fecha_iso, utc=True)
         dt_cr = dt_utc.astimezone(ZONA_CR)
         if corto:
             return dt_cr.strftime("%d/%m/%y %H:%M")
@@ -217,9 +218,9 @@ with tabs[2]:
 
         def filtrar(df, m, a):
             if df.empty: return df
-            # Rellenar fechas vacias y forzar formato ISO8601 flexible
             df['created_at'] = df['created_at'].fillna(datetime.now().isoformat())
-            df['fecha_dt'] = pd.to_datetime(df['created_at'], format='ISO8601', errors='coerce')
+            # Normalización de zona horaria a UTC para evitar el error "Mixed timezones"
+            df['fecha_dt'] = pd.to_datetime(df['created_at'], utc=True, format='ISO8601', errors='coerce')
             df = df.dropna(subset=['fecha_dt'])
             return df[(df['fecha_dt'].dt.month == m) & (df['fecha_dt'].dt.year == a)]
 
