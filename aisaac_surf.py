@@ -169,7 +169,6 @@ def panel_mantenimiento(u):
 
 
 # --- 3. LOGIN ---
-# PARCHE DE SEGURIDAD: Si es una sesión vieja que no tiene 'nombre_ui', forzamos el cierre de sesión
 if 'autenticado' not in st.session_state or 'nombre_ui' not in st.session_state: 
     st.session_state['autenticado'] = False
 
@@ -189,7 +188,6 @@ if not st.session_state['autenticado']:
     st.stop()
 
 # --- 4. INTERFAZ Y ESTILOS ---
-# MODIFICACION AQUI: Traemos la nueva variable 'nombre_ui' y recordamos que 'u' ahora es un entero
 u = st.session_state['user']
 nombre_pantalla = st.session_state['nombre_ui']
 ver = st.session_state['ver']
@@ -214,7 +212,6 @@ with c_logo:
         elif os.path.exists("logo.png"): st.image("logo.png", width=120)
 
 with c_tit:
-    # MODIFICACION AQUI: Usamos 'nombre_pantalla' en lugar de 'u' para que no muestre el ID numerico en el titulo
     st.markdown(f"<div style='border: 2px solid {color_pri}; padding:10px; border-radius:15px; text-align:center; background: {bg_style};'><h2 style='color:{color_pri}; margin:0;'>{nombre_pantalla.upper()} - {titulo_app}</h2></div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["VIAJES", "GASTOS", "DATOS", "TALLER"])
@@ -226,7 +223,6 @@ with tabs[0]:
         k = st.number_input("Kilometraje Actual", min_value=0, step=1)
         if st.form_submit_button("GUARDAR VIAJE"):
             try:
-                # Aqui 'u' funciona perfecto porque ahora es un numero, igual que en la base de datos
                 supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
                 st.success("Operacion registrada")
                 st.rerun()
@@ -259,42 +255,34 @@ with tabs[1]:
 
 with tabs[2]: 
     try:
-        # --- NUEVO: FILTRO POR MES ---
+        # CONSULTA INICIAL A SUPABASE
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
         
         df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
         df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
 
-        if not df_v.empty or not df_g.empty:
-            st.subheader("📅 Filtro de Periodo")
-            # Convertimos las fechas a objetos datetime de pandas
-            if not df_v.empty: df_v['fecha_dt'] = pd.to_datetime(df_v['created_at'])
-            if not df_g.empty: df_g['fecha_dt'] = pd.to_datetime(df_g['created_at'])
-            
-            # Selectores de Mes y Año
-            c_mes, c_ano = st.columns(2)
-            meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            
-            mes_sel = c_mes.selectbox("Seleccionar Mes", range(1, 13), index=datetime.now().month-1, format_func=lambda x: meses_nombres[x-1])
-            ano_sel = c_ano.selectbox("Seleccionar Año", [2024, 2025, 2026], index=2) # 2026 como default
-
-            # Aplicar el filtro a los DataFrames
-            if not df_v.empty:
-                df_v = df_v[(df_v['fecha_dt'].dt.month == mes_sel) & (df_v['fecha_dt'].dt.year == ano_sel)]
-            if not df_g.empty:
-                df_g = df_g[(df_g['fecha_dt'].dt.month == mes_sel) & (df_g['fecha_dt'].dt.year == ano_sel)]
-        # Aqui las consultas a la BD funcionan perfecto buscando por el ID numerico
-        res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
-        res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
+        # FILTRO POR MES Y AÑO
+        st.subheader("Filtro de Periodo")
+        c_mes, c_ano = st.columns(2)
+        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         
-        df_v = pd.DataFrame(res_v.data) if res_v.data else pd.DataFrame()
-        df_g = pd.DataFrame(res_g.data) if res_g.data else pd.DataFrame()
-        
-        if not df_g.empty and 'id' in df_g.columns:
-            df_g = df_g.sort_values(by='id', ascending=False)
+        mes_sel = c_mes.selectbox("Seleccionar Mes", range(1, 13), index=datetime.now().month-1, format_func=lambda x: meses_nombres[x-1])
+        ano_sel = c_ano.selectbox("Seleccionar Año", [2024, 2025, 2026], index=2)
 
+        # APLICAR FILTRO A LOS DATAFRAMES SI TIENEN DATOS
+        if not df_v.empty:
+            df_v['fecha_dt'] = pd.to_datetime(df_v['created_at'])
+            df_v = df_v[(df_v['fecha_dt'].dt.month == mes_sel) & (df_v['fecha_dt'].dt.year == ano_sel)]
+            
+        if not df_g.empty:
+            df_g['fecha_dt'] = pd.to_datetime(df_g['created_at'])
+            df_g = df_g[(df_g['fecha_dt'].dt.month == mes_sel) & (df_g['fecha_dt'].dt.year == ano_sel)]
+            if 'id' in df_g.columns:
+                df_g = df_g.sort_values(by='id', ascending=False)
+
+        # CALCULOS CON DATOS FILTRADOS
         t_v = df_v['monto'].sum() if not df_v.empty else 0
         t_g = df_g['monto'].sum() if not df_g.empty else 0
         
@@ -312,13 +300,12 @@ with tabs[2]:
             
             d1, d2 = st.columns(2)
             with d1:
-                # MODIFICACION AQUI: Usamos 'nombre_pantalla' para que el PDF salga con el nombre real
-                pdf = generar_pdf_pro(df_g, f"REPORTE {nombre_pantalla.upper()}", t_g)
-                st.markdown(crear_boton_descarga(pdf, "Reporte.pdf", "GENERAR PDF", "#DA0B20"), unsafe_allow_html=True)
+                pdf = generar_pdf_pro(df_g, f"REPORTE {nombre_pantalla.upper()} - {meses_nombres[mes_sel-1]} {ano_sel}", t_g)
+                st.markdown(crear_boton_descarga(pdf, f"Reporte_{mes_sel}_{ano_sel}.pdf", "GENERAR PDF", "#DA0B20"), unsafe_allow_html=True)
             with d2:
-                df_xl = df_g.drop(columns=['foto_comprobante', 'cat_grafica'], errors='ignore')
+                df_xl = df_g.drop(columns=['foto_comprobante', 'cat_grafica', 'fecha_dt'], errors='ignore')
                 csv = df_xl.to_csv(index=False).encode('utf-8')
-                st.markdown(crear_boton_descarga(csv, "Gastos.csv", "GENERAR EXCEL", "#107C41"), unsafe_allow_html=True)
+                st.markdown(crear_boton_descarga(csv, f"Gastos_{mes_sel}_{ano_sel}.csv", "GENERAR EXCEL", "#107C41"), unsafe_allow_html=True)
             
             st.write("---")
             st.subheader("Historial detallado con marca de tiempo")
@@ -327,7 +314,8 @@ with tabs[2]:
                 with st.expander(f"{timestamp} | {row['concepto']} | CRC {row['monto']:,}"):
                     if row.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{row['foto_comprobante']}")
                     if st.button("Eliminar", key=f"del_{row['id']}"):
-                        supabase.table("gastos").delete().eq("id", row['id']).execute(); st.rerun()
+                        supabase.table("gastos").delete().eq("id", row['id']).execute()
+                        st.rerun()
     except Exception as e:
         st.error(f"Error al procesar los datos visuales. Detalle: {str(e)[:50]}")
 
