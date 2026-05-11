@@ -125,7 +125,6 @@ def motor_ia_analisis(df_gastos, df_viajes):
 def panel_mantenimiento(u):
     st.markdown("### ESTADO DE FLOTILLA Y TALLER")
     try:
-        # Consulta estricta por ID numerico (Integer)
         res_v = supabase.table("viajes").select("km_actual").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("km_actual").eq("cliente_id", u).execute()
         
@@ -188,7 +187,6 @@ with tabs[0]:
         m = st.number_input("Monto (CRC)", min_value=0, step=1)
         k = st.number_input("Kilometraje", min_value=0, step=1)
         if st.form_submit_button("GUARDAR"):
-            # Solo enviamos el numero entero 'u' (1 o 2)
             supabase.table("viajes").insert({"cliente": c, "monto": int(m), "km_actual": int(k), "cliente_id": u}).execute()
             st.success("Registrado"); st.rerun()
 
@@ -200,14 +198,12 @@ with tabs[1]:
         kg = st.number_input("Kilometraje", min_value=0, step=1)
         f = st.file_uploader("Foto", type=['jpg','png','jpeg'])
         if st.form_submit_button("REGISTRAR"):
-            # Solo enviamos el numero entero 'u' (1 o 2)
             fb64 = procesar_foto(f) if f else None
             supabase.table("gastos").insert({"concepto": f"{cat} - {det}", "monto": int(mg), "cliente_id": u, "foto_comprobante": fb64, "km_actual": int(kg)}).execute()
             st.success("Gasto guardado"); st.rerun()
 
 with tabs[2]: 
     try:
-        # CONSULTA ESTRICTA POR ENTERO (Resuelve el error de sintaxis)
         res_v = supabase.table("viajes").select("*").eq("cliente_id", u).execute()
         res_g = supabase.table("gastos").select("*").eq("cliente_id", u).execute()
         
@@ -221,8 +217,10 @@ with tabs[2]:
 
         def filtrar(df, m, a):
             if df.empty: return df
+            # Rellenar fechas vacias y forzar formato ISO8601 flexible
             df['created_at'] = df['created_at'].fillna(datetime.now().isoformat())
-            df['fecha_dt'] = pd.to_datetime(df['created_at'])
+            df['fecha_dt'] = pd.to_datetime(df['created_at'], format='ISO8601', errors='coerce')
+            df = df.dropna(subset=['fecha_dt'])
             return df[(df['fecha_dt'].dt.month == m) & (df['fecha_dt'].dt.year == a)]
 
         df_v = filtrar(df_v, mes_sel, ano_sel)
@@ -245,7 +243,7 @@ with tabs[2]:
             pdf = generar_pdf_pro(df_g, f"REPORTE {mes_sel}/{ano_sel}", t_g)
             st.markdown(crear_boton_descarga(pdf, f"Reporte_{mes_sel}.pdf", "DESCARGAR PDF", "#DA0B20"), unsafe_allow_html=True)
             
-            for i, r in df_g.sort_values('created_at', ascending=False).iterrows():
+            for i, r in df_g.sort_values('fecha_dt', ascending=False).iterrows():
                 with st.expander(f"{formatear_fecha_cr(r['created_at'], True)} | {r['concepto']} | CRC {r['monto']:,}"):
                     if r.get('foto_comprobante'): st.image(f"data:image/jpeg;base64,{r['foto_comprobante']}")
                     if st.button("Borrar", key=f"d_{r['id']}"):
